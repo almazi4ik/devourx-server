@@ -3,14 +3,13 @@ const http = require('http');
 
 const PORT = process.env.PORT || 3000;
 const WORLD = 12000;
-const TICK = 50; // ms per tick (20 ticks/sec)
+const TICK = 50;
 const MAX_BOTS = 30;
 const MIN_LEN = 10;
 const MAX_BODY = 1000;
 const MAX_FOOD = 800;
 const BOT_NAMES = ['Toxix','BloodWorm','Kira','ZeroX','Ghost','Titan','Nova','Crux','Venom','Abyss','Rush','Nyx','Omen','Void','Fang','Drift','Blaze','Pulse','Echo','Raven','Cobra','Sphinx','Drex','Hornet','Vex'];
 
-// ── HTTP сервер (нужен для Render) ──
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('DevourX Server OK');
@@ -18,19 +17,17 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocket.Server({ server });
 
-// ── Игровое состояние ──
 let foods = [];
 let bots = [];
-let players = {}; // id -> player object
+let players = {};
 let nextId = 1;
 
-// ── Еда ──
 function mkFood() {
   return {
     x: Math.random() * WORLD,
     y: Math.random() * WORLD,
     r: 4 + Math.random() * 7,
-    color: hsl(${Math.floor(Math.random() * 360)},90%,65%),
+    color: `hsl(${Math.floor(Math.random() * 360)},90%,65%)`,
     big: Math.random() > 0.82
   };
 }
@@ -39,7 +36,6 @@ function initFoods() {
   for (let i = 0; i < MAX_FOOD; i++) foods.push(mkFood());
 }
 
-// ── Змейка ──
 function mkSnake(x, y, name, skinId, isBot = false, botIdx = 0) {
   const angle = Math.random() * Math.PI * 2;
   const segs = [];
@@ -82,7 +78,6 @@ function updateSnake(sn) {
   while (sn.segs.length > sn.length) sn.segs.pop();
 }
 
-// ── Поедание еды ──
 function eatFood(sn) {
   const h = sn.segs[0];
   const r = getR(sn.score);
@@ -103,11 +98,9 @@ function eatFood(sn) {
   return gained;
 }
 
-// ── Смерть змейки — разбросать еду ──
 function killSnake(sn) {
   if (!sn.alive) return;
   sn.alive = false;
-  // разбросать еду на месте трупа
   const drop = Math.min(sn.segs.length, 80);
   for (let i = 0; i < drop; i += 3) {
     const s = sn.segs[i];
@@ -115,18 +108,16 @@ function killSnake(sn) {
       x: s.x + (Math.random() - 0.5) * 20,
       y: s.y + (Math.random() - 0.5) * 20,
       r: 5 + Math.random() * 5,
-      color: hsl(${Math.floor(Math.random() * 360)},90%,65%),
+      color: `hsl(${Math.floor(Math.random() * 360)},90%,65%)`,
       big: true
     });
   }
 }
 
-// ── Бот AI ──
 function updateBotAI(bot) {
   if (!bot.alive) return;
   const h = bot.segs[0];
 
-  // ищем ближайшую еду
   let best = Infinity, tgt = null;
   for (let i = 0; i < foods.length; i += 4) {
     const f = foods[i];
@@ -136,7 +127,6 @@ function updateBotAI(bot) {
   }
   if (tgt) bot.tAngle = Math.atan2(tgt.y - h.y, tgt.x - h.x);
 
-  // избегать игроков
   for (const pid in players) {
     const p = players[pid];
     if (!p.alive) continue;
@@ -146,7 +136,7 @@ function updateBotAI(bot) {
       bot.tAngle = Math.atan2(h.y - ph.y, h.x - ph.x);
     }
   }
-[04.03.2026 15:34] Даня: // избегать других ботов
+
   for (const ob of bots) {
     if (ob === bot || !ob.alive) continue;
     const oh = ob.segs[0];
@@ -156,7 +146,6 @@ function updateBotAI(bot) {
     }
   }
 
-  // граница мира
   if (h.x < 200) bot.tAngle = 0;
   if (h.x > WORLD - 200) bot.tAngle = Math.PI;
   if (h.y < 200) bot.tAngle = Math.PI / 2;
@@ -165,7 +154,6 @@ function updateBotAI(bot) {
   bot.boosting = false;
 }
 
-// ── Инициализация ботов ──
 function initBots() {
   bots = [];
   for (let i = 0; i < MAX_BOTS; i++) {
@@ -183,7 +171,6 @@ function initBots() {
   }
 }
 
-// ── Проверка столкновений ──
 function checkCollisions() {
   const allSnakes = [...Object.values(players), ...bots].filter(s => s.alive);
 
@@ -194,7 +181,6 @@ function checkCollisions() {
 
     for (const other of allSnakes) {
       if (!other.alive || other === sn) continue;
-      // голова sn врезалась в тело other (начиная с 3-го сегмента)
       const skipSegs = other === sn ? 10 : 2;
       for (let i = skipSegs; i < other.segs.length; i++) {
         const s = other.segs[i];
@@ -202,10 +188,6 @@ function checkCollisions() {
         const rr = r + getR(other.score) - 2;
         if (dx * dx + dy * dy < rr * rr) {
           killSnake(sn);
-          // если убил игрок — начислить очки убийства
-          if (!other.isBot && !sn.isBot) {
-            // PvP kill
-          }
           break;
         }
       }
@@ -213,7 +195,6 @@ function checkCollisions() {
     }
   }
 
-  // возрождение мёртвых ботов
   for (let i = 0; i < bots.length; i++) {
     if (!bots[i].alive) {
       const b = mkSnake(
@@ -228,20 +209,17 @@ function checkCollisions() {
   }
 }
 
-// ── Отправка состояния мира игрокам ──
 function buildWorldSnapshot(forPlayerId) {
   const me = players[forPlayerId];
   if (!me || !me.segs.length) return null;
 
   const cx = me.segs[0].x;
   const cy = me.segs[0].y;
-  const VIEW = 2000; // радиус видимости
+  const VIEW = 2000;
 
-  // Отфильтровать близких игроков и ботов
   const nearPlayers = Object.entries(players)
     .filter(([id, p]) => p.alive)
     .map(([id, p]) => {
-      const h = p.segs[0];
       return {
         id,
         name: p.name,
@@ -273,7 +251,6 @@ function buildWorldSnapshot(forPlayerId) {
     return dx * dx + dy * dy < VIEW * VIEW;
   }).slice(0, 300);
 
-  // Лидерборд
   const allSnakes = [...Object.values(players), ...bots].filter(s => s.alive);
   allSnakes.sort((a, b) => b.score - a.score);
   const leaderboard = allSnakes.slice(0, 10).map(s => ({
@@ -292,44 +269,37 @@ function buildWorldSnapshot(forPlayerId) {
     myAlive: me.alive
   };
 }
-[04.03.2026 15:34] Даня: // ── Главный игровой тик ──
+
 function gameTick() {
-  // Обновить ботов
   for (const bot of bots) {
     updateBotAI(bot);
     updateSnake(bot);
     eatFood(bot);
-    // boost теряет длину
     if (bot.boosting && bot.length > MIN_LEN && Math.random() < 0.18) {
       bot.length = Math.max(MIN_LEN, bot.length - 1);
       bot.score = Math.max(MIN_LEN, bot.score - 1);
     }
   }
 
-  // Обновить игроков
   for (const id in players) {
     const p = players[id];
     if (!p.alive) continue;
     updateSnake(p);
     eatFood(p);
-    // boost теряет длину
     if (p.boosting && p.length > MIN_LEN && Math.random() < 0.18) {
       p.length = Math.max(MIN_LEN, p.length - 1);
       p.score = Math.max(MIN_LEN, p.score - 1);
     }
   }
 
-  // Проверить столкновения
   checkCollisions();
 
-  // Отправить состояние каждому игроку
   for (const id in players) {
     const p = players[id];
     const ws = p.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) continue;
 
     if (!p.alive) {
-      // Сообщить о смерти
       if (!p.deathSent) {
         p.deathSent = true;
         ws.send(JSON.stringify({ type: 'dead', score: p.score }));
@@ -344,20 +314,18 @@ function gameTick() {
   }
 }
 
-// ── WebSocket соединения ──
 wss.on('connection', (ws) => {
   const id = String(nextId++);
-  console.log([+] Игрок ${id} подключился);
+  console.log(`[+] Игрок ${id} подключился`);
 
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
     if (msg.type === 'join') {
-      // Игрок входит в игру
       const spawnX = 800 + Math.random() * (WORLD - 1600);
       const spawnY = 800 + Math.random() * (WORLD - 1600);
-      const p = mkSnake(spawnX, spawnY, msg.name  'Player', msg.skinId  0, false);
+      const p = mkSnake(spawnX, spawnY, msg.name || 'Player', msg.skinId || 0, false);
       p.ws = ws;
       p.deathSent = false;
       players[id] = p;
@@ -369,7 +337,7 @@ wss.on('connection', (ws) => {
         spawnY,
         worldSize: WORLD
       }));
-      console.log([join] ${msg.name} (id=${id}));
+      console.log(`[join] ${msg.name} (id=${id})`);
     }
 
     if (msg.type === 'input') {
@@ -380,7 +348,6 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'respawn') {
-      // Переродиться
       const spawnX = 800 + Math.random() * (WORLD - 1600);
       const spawnY = 800 + Math.random() * (WORLD - 1600);
       const oldP = players[id];
@@ -393,7 +360,7 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    console.log([-] Игрок ${id} отключился);
+    console.log(`[-] Игрок ${id} отключился`);
     if (players[id]) {
       killSnake(players[id]);
       delete players[id];
@@ -408,12 +375,10 @@ wss.on('connection', (ws) => {
   });
 });
 
-// ── Запуск ──
 initFoods();
 initBots();
 setInterval(gameTick, TICK);
 
 server.listen(PORT, () => {
-  console.log(DevourX сервер запущен на порту ${PORT});
-});
+  console.log(`DevourX сервер запущен на порту ${PORT}`);
 });
