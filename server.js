@@ -381,4 +381,5 @@ setInterval(gameTick, TICK);
 
 server.listen(PORT, () => {
   console.log(`DevourX сервер запущен на порту ${PORT}`);
+  });
 });
