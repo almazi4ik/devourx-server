@@ -1,4 +1,4 @@
-[04.03.2026 15:34] Даня: const WebSocket = require('ws');
+const WebSocket = require('ws');
 const http = require('http');
 
 const PORT = process.env.PORT || 3000;
