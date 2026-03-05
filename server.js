@@ -1,5 +1,24 @@
 const WebSocket = require('ws');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+const TOP_FILE = path.join(__dirname, 'globalTop.json');
+
+function loadTopFromFile() {
+  try {
+    if (fs.existsSync(TOP_FILE)) {
+      return JSON.parse(fs.readFileSync(TOP_FILE, 'utf8'));
+    }
+  } catch(e) { console.error('Failed to load top:', e); }
+  return [];
+}
+
+function saveTopToFile() {
+  try {
+    fs.writeFileSync(TOP_FILE, JSON.stringify(globalTop), 'utf8');
+  } catch(e) { console.error('Failed to save top:', e); }
+}
 
 const PORT = process.env.PORT || 3000;
 const WORLD = 12000;
@@ -317,7 +336,7 @@ wss.on('connection', (ws) => {
 
 initFoods();
 // Глобальный топ рекордов (хранится пока сервер жив)
-let globalTop = []; // [{name, score, skinId}]
+let globalTop = loadTopFromFile(); // [{name, score, skinId}]
 
 function updateGlobalTop(name, score, skinId) {
   // Обновляем или добавляем запись
@@ -329,6 +348,7 @@ function updateGlobalTop(name, score, skinId) {
   }
   globalTop.sort((a, b) => b.score - a.score);
   globalTop = globalTop.slice(0, 50); // храним топ-50
+  saveTopToFile();
 }
 
 // Боты убраны — только реальные игроки
