@@ -3,12 +3,10 @@ const http = require('http');
 
 const PORT = process.env.PORT || 3000;
 const WORLD = 12000;
-const TICK = 50;
-const MAX_BOTS = 30;
+const TICK = 33; // ~30 тиков/сек вместо 20
 const MIN_LEN = 10;
 const MAX_BODY = 1000;
 const MAX_FOOD = 800;
-const BOT_NAMES = ['Toxix','BloodWorm','Kira','ZeroX','Ghost','Titan','Nova','Crux','Venom','Abyss','Rush','Nyx','Omen','Void','Fang','Drift','Blaze','Pulse','Echo','Raven','Cobra','Sphinx','Drex','Hornet','Vex'];
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -18,10 +16,10 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocket.Server({ server });
 
 let foods = [];
-let bots = [];
 let players = {};
 let nextId = 1;
 
+// ══════ ЕДА ══════
 function mkFood() {
   return {
     x: Math.random() * WORLD,
@@ -31,16 +29,21 @@ function mkFood() {
     big: Math.random() > 0.82
   };
 }
+
 function initFoods() {
   foods = [];
   for (let i = 0; i < MAX_FOOD; i++) foods.push(mkFood());
 }
 
-function mkSnake(x, y, name, skinId, isBot = false, botIdx = 0) {
+// ══════ ЗМЕЯ ══════
+function mkSnake(x, y, name, skinId) {
   const angle = Math.random() * Math.PI * 2;
   const segs = [];
   for (let i = 0; i < MIN_LEN; i++) {
-    segs.push({ x: x - Math.cos(angle) * i * 14, y: y - Math.sin(angle) * i * 14 });
+    segs.push({
+      x: x - Math.cos(angle) * i * 14,
+      y: y - Math.sin(angle) * i * 14
+    });
   }
   return {
     x, y,
@@ -54,15 +57,12 @@ function mkSnake(x, y, name, skinId, isBot = false, botIdx = 0) {
     length: MIN_LEN,
     score: MIN_LEN,
     segs,
-    isBot,
-    botIdx,
-    turnSpeed: isBot ? 0.06 : 0.18,
+    turnSpeed: 0.18,
   };
 }
 
 function getR(score) {
-  const s = Math.min(score, 1000);
-  return 6 + (s / 1000) * 22;
+  return 6 + (Math.min(score, 1000) / 1000) * 22;
 }
 
 function updateSnake(sn) {
@@ -81,7 +81,6 @@ function updateSnake(sn) {
 function eatFood(sn) {
   const h = sn.segs[0];
   const r = getR(sn.score);
-  let gained = 0;
   for (let i = foods.length - 1; i >= 0; i--) {
     const f = foods[i];
     const dx = h.x - f.x, dy = h.y - f.y;
@@ -90,99 +89,44 @@ function eatFood(sn) {
       const g = f.big ? 4 : 1;
       sn.score += g;
       if (sn.length < MAX_BODY) sn.length = Math.min(MAX_BODY, sn.length + g);
-      foods.splice(i, 1);
-      foods.push(mkFood());
-      gained += g;
+      // Заменяем съеденную еду новой в случайном месте
+      foods[i] = mkFood();
     }
   }
-  return gained;
 }
 
 function killSnake(sn) {
   if (!sn.alive) return;
   sn.alive = false;
+  // Выбрасываем еду из тела
   const drop = Math.min(sn.segs.length, 80);
   for (let i = 0; i < drop; i += 3) {
     const s = sn.segs[i];
-    foods.push({
+    // Заменяем существующую еду вместо добавления новой (чтобы не превышать MAX_FOOD)
+    const replaceIdx = Math.floor(Math.random() * foods.length);
+    foods[replaceIdx] = {
       x: s.x + (Math.random() - 0.5) * 20,
       y: s.y + (Math.random() - 0.5) * 20,
       r: 5 + Math.random() * 5,
       color: `hsl(${Math.floor(Math.random() * 360)},90%,65%)`,
       big: true
-    });
+    };
   }
 }
 
-function updateBotAI(bot) {
-  if (!bot.alive) return;
-  const h = bot.segs[0];
-
-  let best = Infinity, tgt = null;
-  for (let i = 0; i < foods.length; i += 4) {
-    const f = foods[i];
-    const dx = f.x - h.x, dy = f.y - h.y;
-    const d = dx * dx + dy * dy;
-    if (d < best) { best = d; tgt = f; }
-  }
-  if (tgt) bot.tAngle = Math.atan2(tgt.y - h.y, tgt.x - h.x);
-
-  for (const pid in players) {
-    const p = players[pid];
-    if (!p.alive) continue;
-    const ph = p.segs[0];
-    const dx = ph.x - h.x, dy = ph.y - h.y;
-    if (dx * dx + dy * dy < 120 * 120) {
-      bot.tAngle = Math.atan2(h.y - ph.y, h.x - ph.x);
-    }
-  }
-
-  for (const ob of bots) {
-    if (ob === bot || !ob.alive) continue;
-    const oh = ob.segs[0];
-    const dx = oh.x - h.x, dy = oh.y - h.y;
-    if (dx * dx + dy * dy < 55 * 55) {
-      bot.tAngle = Math.atan2(h.y - oh.y, h.x - oh.x);
-    }
-  }
-
-  if (h.x < 200) bot.tAngle = 0;
-  if (h.x > WORLD - 200) bot.tAngle = Math.PI;
-  if (h.y < 200) bot.tAngle = Math.PI / 2;
-  if (h.y > WORLD - 200) bot.tAngle = -Math.PI / 2;
-
-  bot.boosting = false;
-}
-
-function initBots() {
-  bots = [];
-  for (let i = 0; i < MAX_BOTS; i++) {
-    const b = mkSnake(
-      800 + Math.random() * (WORLD - 1600),
-      800 + Math.random() * (WORLD - 1600),
-      BOT_NAMES[i % BOT_NAMES.length],
-      Math.floor(Math.random() * 8),
-      true, i
-    );
-    b.score = MIN_LEN + Math.floor(Math.random() * 200);
-    b.length = b.score;
-    for (let j = 0; j < b.length - MIN_LEN; j++) b.segs.push({ ...b.segs[b.segs.length - 1] });
-    bots.push(b);
-  }
-}
-
+// ══════ КОЛЛИЗИИ (только игроки) ══════
 function checkCollisions() {
-  const allSnakes = [...Object.values(players), ...bots].filter(s => s.alive);
+  const alivePlayers = Object.values(players).filter(s => s.alive);
 
-  for (const sn of allSnakes) {
+  for (const sn of alivePlayers) {
     if (!sn.alive) continue;
     const h = sn.segs[0];
     const r = getR(sn.score);
 
-    for (const other of allSnakes) {
+    for (const other of alivePlayers) {
       if (!other.alive || other === sn) continue;
-      const skipSegs = other === sn ? 10 : 2;
-      for (let i = skipSegs; i < other.segs.length; i++) {
+      // Голова sn врезается в тело other
+      for (let i = 2; i < other.segs.length; i++) {
         const s = other.segs[i];
         const dx = h.x - s.x, dy = h.y - s.y;
         const rr = r + getR(other.score) - 2;
@@ -194,21 +138,9 @@ function checkCollisions() {
       if (!sn.alive) break;
     }
   }
-
-  for (let i = 0; i < bots.length; i++) {
-    if (!bots[i].alive) {
-      const b = mkSnake(
-        800 + Math.random() * (WORLD - 1600),
-        800 + Math.random() * (WORLD - 1600),
-        BOT_NAMES[bots[i].botIdx % BOT_NAMES.length],
-        Math.floor(Math.random() * 8),
-        true, bots[i].botIdx
-      );
-      bots[i] = b;
-    }
-  }
 }
 
+// ══════ СНАПШОТ МИРА ══════
 function buildWorldSnapshot(forPlayerId) {
   const me = players[forPlayerId];
   if (!me || !me.segs.length) return null;
@@ -217,43 +149,31 @@ function buildWorldSnapshot(forPlayerId) {
   const cy = me.segs[0].y;
   const VIEW = 2000;
 
+  // Только живые игроки
   const nearPlayers = Object.entries(players)
-    .filter(([id, p]) => p.alive)
-    .map(([id, p]) => {
-      return {
-        id,
-        name: p.name,
-        skinId: p.skinId,
-        score: p.score,
-        segs: p.segs.slice(0, 60),
-        boosting: p.boosting,
-        isMe: id === forPlayerId
-      };
-    });
-
-  const nearBots = bots
-    .filter(b => {
-      if (!b.alive || !b.segs.length) return false;
-      const h = b.segs[0];
-      const dx = h.x - cx, dy = h.y - cy;
-      return dx * dx + dy * dy < VIEW * VIEW * 4;
-    })
-    .map(b => ({
-      name: b.name,
-      skinId: b.skinId,
-      score: b.score,
-      segs: b.segs.slice(0, 40),
-      boosting: b.boosting
+    .filter(([, p]) => p.alive)
+    .map(([id, p]) => ({
+      id,
+      name: p.name,
+      skinId: p.skinId,
+      score: p.score,
+      segs: p.segs.slice(0, 60),
+      boosting: p.boosting,
+      isMe: id === forPlayerId
     }));
 
+  // Еда в зоне видимости
   const nearFoods = foods.filter(f => {
     const dx = f.x - cx, dy = f.y - cy;
     return dx * dx + dy * dy < VIEW * VIEW;
   }).slice(0, 300);
 
-  const allSnakes = [...Object.values(players), ...bots].filter(s => s.alive);
-  allSnakes.sort((a, b) => b.score - a.score);
-  const leaderboard = allSnakes.slice(0, 10).map(s => ({
+  // Лидерборд — только игроки, без ботов
+  const sorted = Object.values(players)
+    .filter(s => s.alive)
+    .sort((a, b) => b.score - a.score);
+
+  const leaderboard = sorted.slice(0, 10).map(s => ({
     name: s.name,
     score: s.score,
     isMe: s === me
@@ -262,7 +182,6 @@ function buildWorldSnapshot(forPlayerId) {
   return {
     type: 'world',
     players: nearPlayers,
-    bots: nearBots,
     foods: nearFoods,
     leaderboard,
     myScore: me.score,
@@ -270,22 +189,15 @@ function buildWorldSnapshot(forPlayerId) {
   };
 }
 
+// ══════ ИГРОВОЙ ТИК ══════
 function gameTick() {
-  for (const bot of bots) {
-    updateBotAI(bot);
-    updateSnake(bot);
-    eatFood(bot);
-    if (bot.boosting && bot.length > MIN_LEN && Math.random() < 0.18) {
-      bot.length = Math.max(MIN_LEN, bot.length - 1);
-      bot.score = Math.max(MIN_LEN, bot.score - 1);
-    }
-  }
-
+  // Обновляем всех игроков
   for (const id in players) {
     const p = players[id];
     if (!p.alive) continue;
     updateSnake(p);
     eatFood(p);
+    // Ускорение тратит массу
     if (p.boosting && p.length > MIN_LEN && Math.random() < 0.18) {
       p.length = Math.max(MIN_LEN, p.length - 1);
       p.score = Math.max(MIN_LEN, p.score - 1);
@@ -294,6 +206,7 @@ function gameTick() {
 
   checkCollisions();
 
+  // Рассылаем снапшоты
   for (const id in players) {
     const p = players[id];
     const ws = p.ws;
@@ -314,6 +227,7 @@ function gameTick() {
   }
 }
 
+// ══════ СОЕДИНЕНИЯ ══════
 wss.on('connection', (ws) => {
   const id = String(nextId++);
   console.log(`[+] Игрок ${id} подключился`);
@@ -323,9 +237,10 @@ wss.on('connection', (ws) => {
     try { msg = JSON.parse(raw); } catch { return; }
 
     if (msg.type === 'join') {
-      const spawnX = 800 + Math.random() * (WORLD - 1600);
-      const spawnY = 800 + Math.random() * (WORLD - 1600);
-      const p = mkSnake(spawnX, spawnY, msg.name || 'Player', msg.skinId || 0, false);
+      // Спавн в центре мира
+      const spawnX = WORLD / 2;
+      const spawnY = WORLD / 2;
+      const p = mkSnake(spawnX, spawnY, msg.name || 'Player', msg.skinId || 0);
       p.ws = ws;
       p.deathSent = false;
       players[id] = p;
@@ -337,7 +252,7 @@ wss.on('connection', (ws) => {
         spawnY,
         worldSize: WORLD
       }));
-      console.log(`[join] ${msg.name} (id=${id})`);
+      console.log(`[join] ${msg.name} спавн в центре (id=${id})`);
     }
 
     if (msg.type === 'input') {
@@ -348,14 +263,16 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'respawn') {
-      const spawnX = 800 + Math.random() * (WORLD - 1600);
-      const spawnY = 800 + Math.random() * (WORLD - 1600);
       const oldP = players[id];
-      const p = mkSnake(spawnX, spawnY, oldP ? oldP.name : 'Player', oldP ? oldP.skinId : 0, false);
+      // Респавн тоже в центре
+      const spawnX = WORLD / 2;
+      const spawnY = WORLD / 2;
+      const p = mkSnake(spawnX, spawnY, oldP ? oldP.name : 'Player', oldP ? oldP.skinId : 0);
       p.ws = ws;
       p.deathSent = false;
       players[id] = p;
-      ws.send(JSON.stringify({ type: 'respawned', spawnX, spawnY }));
+      ws.send(JSON.stringify({ type: 'joined', id, spawnX, spawnY, worldSize: WORLD }));
+      console.log(`[respawn] ${p.name} (id=${id})`);
     }
   });
 
@@ -376,9 +293,9 @@ wss.on('connection', (ws) => {
 });
 
 initFoods();
-initBots();
+// Боты убраны — только реальные игроки
 setInterval(gameTick, TICK);
 
 server.listen(PORT, () => {
-  console.log(`DevourX сервер запущен на порту ${PORT}`);
-  });
+  console.log(`DevourX сервер запущен на порту ${PORT} (тик ${TICK}мс)`);
+});
