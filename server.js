@@ -179,13 +179,16 @@ function buildWorldSnapshot(forPlayerId) {
     isMe: s === me
   }));
 
+  const playerCount = Object.values(players).filter(p => p.alive).length;
+
   return {
     type: 'world',
     players: nearPlayers,
     foods: nearFoods,
     leaderboard,
     myScore: me.score,
-    myAlive: me.alive
+    myAlive: me.alive,
+    playerCount
   };
 }
 
@@ -245,12 +248,14 @@ wss.on('connection', (ws) => {
       p.deathSent = false;
       players[id] = p;
 
+      const joinCount = Object.values(players).filter(p => p.alive).length;
       ws.send(JSON.stringify({
         type: 'joined',
         id,
         spawnX,
         spawnY,
-        worldSize: WORLD
+        worldSize: WORLD,
+        playerCount: joinCount
       }));
       console.log(`[join] ${msg.name} спавн в центре (id=${id})`);
     }
