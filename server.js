@@ -188,8 +188,6 @@ function buildWorldSnapshot(forPlayerId) {
     isMe: s === me
   }));
 
-  const playerCount = Object.values(players).filter(p => p.alive).length;
-
   return {
     type: 'world',
     players: nearPlayers,
@@ -197,8 +195,7 @@ function buildWorldSnapshot(forPlayerId) {
     leaderboard,
     globalTop: globalTop.slice(0, 20),
     myScore: me.score,
-    myAlive: me.alive,
-    playerCount
+    myAlive: me.alive
   };
 }
 
@@ -219,6 +216,9 @@ function gameTick() {
 
   checkCollisions();
 
+  // Считаем онлайн один раз для всех
+  const playerCount = Object.values(players).filter(p => p.alive).length;
+
   // Рассылаем снапшоты
   for (const id in players) {
     const p = players[id];
@@ -235,6 +235,7 @@ function gameTick() {
 
     const snapshot = buildWorldSnapshot(id);
     if (snapshot) {
+      snapshot.playerCount = playerCount;
       try { ws.send(JSON.stringify(snapshot)); } catch(e) {}
     }
   }
