@@ -72,8 +72,13 @@ function updateSnake(sn) {
   while (da < -Math.PI) da += Math.PI * 2;
   sn.angle += da * sn.turnSpeed;
   const spd = sn.boosting ? sn.speed * 1.85 : sn.speed;
-  const hx = ((sn.segs[0].x + Math.cos(sn.angle) * spd) % WORLD + WORLD) % WORLD;
-  const hy = ((sn.segs[0].y + Math.sin(sn.angle) * spd) % WORLD + WORLD) % WORLD;
+  const hx = sn.segs[0].x + Math.cos(sn.angle) * spd;
+  const hy = sn.segs[0].y + Math.sin(sn.angle) * spd;
+  // Убиваем при касании границы
+  if (hx <= 0 || hx >= WORLD || hy <= 0 || hy >= WORLD) {
+    killSnake(sn);
+    return;
+  }
   sn.segs.unshift({ x: hx, y: hy });
   while (sn.segs.length > sn.length) sn.segs.pop();
 }
@@ -98,6 +103,10 @@ function eatFood(sn) {
 function killSnake(sn) {
   if (!sn.alive) return;
   sn.alive = false;
+  // Записываем в глобальный топ если это игрок
+  if (!sn.isBot && sn.name && sn.score > 0) {
+    updateGlobalTop(sn.name, sn.score, sn.skinId);
+  }
   // Выбрасываем еду из тела
   const drop = Math.min(sn.segs.length, 80);
   for (let i = 0; i < drop; i += 3) {
@@ -186,6 +195,7 @@ function buildWorldSnapshot(forPlayerId) {
     players: nearPlayers,
     foods: nearFoods,
     leaderboard,
+    globalTop: globalTop.slice(0, 20),
     myScore: me.score,
     myAlive: me.alive,
     playerCount
@@ -267,6 +277,10 @@ wss.on('connection', (ws) => {
       p.boosting = msg.boost && p.length > MIN_LEN;
     }
 
+    if (msg.type === 'getTop') {
+      ws.send(JSON.stringify({ type: 'globalTop', data: globalTop.slice(0, 20) }));
+    }
+
     if (msg.type === 'respawn') {
       const oldP = players[id];
       // Респавн тоже в центре
@@ -284,7 +298,10 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     console.log(`[-] Игрок ${id} отключился`);
     if (players[id]) {
-      killSnake(players[id]);
+      // Записать рекорд перед удалением
+      const p = players[id];
+      if (p.score > 0) updateGlobalTop(p.name, p.score, p.skinId);
+      killSnake(p);
       delete players[id];
     }
   });
@@ -298,6 +315,21 @@ wss.on('connection', (ws) => {
 });
 
 initFoods();
+// Глобальный топ рекордов (хранится пока сервер жив)
+let globalTop = []; // [{name, score, skinId}]
+
+function updateGlobalTop(name, score, skinId) {
+  // Обновляем или добавляем запись
+  const existing = globalTop.findIndex(r => r.name === name);
+  if (existing >= 0) {
+    if (score > globalTop[existing].score) globalTop[existing] = { name, score, skinId };
+  } else {
+    globalTop.push({ name, score, skinId });
+  }
+  globalTop.sort((a, b) => b.score - a.score);
+  globalTop = globalTop.slice(0, 50); // храним топ-50
+}
+
 // Боты убраны — только реальные игроки
 setInterval(gameTick, TICK);
 
