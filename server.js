@@ -73,10 +73,15 @@ function eatFood(sn) {
     const er = (f.size==='big' ? f.r+10 : f.size==='medium' ? f.r+7 : f.r+5) + r;
     if (dx*dx + dy*dy < er*er) {
       const g = f.size==='big' ? 10 : f.size==='medium' ? 5 : 2;
-      // Очки растут бесконечно
       sn.score += g;
-      // Хвост растёт только до MAX_BODY
       if (sn.length < MAX_BODY) sn.length = Math.min(MAX_BODY, sn.length + g);
+      // 1 монета за каждые 3 еды (считаем штуки, не очки)
+      sn.foodEaten = (sn.foodEaten||0) + 1;
+      if (sn.foodEaten >= 3) {
+        sn.foodEaten -= 3;
+        if (sn.ws && sn.ws.readyState === 1)
+          sn.ws.send(JSON.stringify({type:'coin_reward', coins:1}));
+      }
       foods[i] = mkFood();
     }
   }
@@ -107,10 +112,8 @@ function checkCollisions() {
         const s = other.segs[i], dx = h.x-s.x, dy = h.y-s.y;
         if (dx*dx + dy*dy < (r+getR(other.score)-2)**2) {
           killSnake(sn);
-          // +3 монеты тому чей хвост подбил
-          if (other.ws && other.ws.readyState === 1) {
+          if (other.ws && other.ws.readyState === 1)
             other.ws.send(JSON.stringify({type:'kill_reward', coins:3}));
-          }
           break;
         }
       }
@@ -142,7 +145,6 @@ function gameTick() {
     if (!p.alive) continue;
     updateSnake(p);
     eatFood(p);
-    // Ускорение снимает меньше хвоста — было 0.18, стало 0.05
     if (p.boosting && p.length > MIN_LEN && Math.random() < 0.05) {
       p.length = Math.max(MIN_LEN, p.length-1);
       p.score  = Math.max(MIN_LEN, p.score-1);
