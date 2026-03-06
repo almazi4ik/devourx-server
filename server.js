@@ -126,18 +126,14 @@ function checkCollisions() {
 function buildSnapshot(forId) {
   const me = players[forId];
   if (!me || !me.segs.length) return null;
-  const cx = me.segs[0].x, cy = me.segs[0].y, VIEW = 4000;
   const nearPlayers = Object.entries(players).filter(([,p])=>p.alive).map(([id,p])=>({
     id, name: p.name, skinId: p.skinId, score: p.score,
     segs: p.segs.slice(0,750), boosting: p.boosting, isMe: id===forId
   }));
-  const nearFoods = foods.filter(f=>{
-    const dx=f.x-cx, dy=f.y-cy; return dx*dx+dy*dy < VIEW*VIEW;
-  }).slice(0,600);
   const leaderboard = Object.values(players).filter(s=>s.alive)
     .sort((a,b)=>b.score-a.score).slice(0,10)
     .map(s=>({ name:s.name, score:s.score, isMe:s===me }));
-  return { type:'world', players:nearPlayers, foods:nearFoods, leaderboard, myScore:me.score };
+  return { type:'world', players:nearPlayers, foods, leaderboard, myScore:me.score };
 }
 
 function gameTick() {
