@@ -2,7 +2,7 @@ const WebSocket = require('ws');
 const http = require('http');
 
 const PORT = process.env.PORT || 3000;
-const WORLD = 12000;
+const WORLD = 4000;
 const TICK = 33;
 const MIN_LEN = 10;
 const MAX_BODY = 750;
@@ -125,7 +125,7 @@ function checkCollisions() {
 function buildSnapshot(forId) {
   const me = players[forId];
   if (!me || !me.segs.length) return null;
-  const cx = me.segs[0].x, cy = me.segs[0].y, VIEW = 2200;
+  const cx = me.segs[0].x, cy = me.segs[0].y, VIEW = 4000;
   const nearPlayers = Object.entries(players).filter(([,p])=>p.alive).map(([id,p])=>({
     id, name: p.name, skinId: p.skinId, score: p.score,
     segs: p.segs.slice(0,750), boosting: p.boosting, isMe: id===forId
@@ -172,10 +172,12 @@ wss.on('connection', (ws) => {
     let msg; try { msg=JSON.parse(raw); } catch { return; }
 
     if (msg.type === 'join') {
-      const p = mkSnake(WORLD/2, WORLD/2, msg.name||'Player', msg.skinId||0);
+      const sx = 300 + Math.random() * (WORLD - 600);
+      const sy = 300 + Math.random() * (WORLD - 600);
+      const p = mkSnake(sx, sy, msg.name||'Player', msg.skinId||0);
       p.ws=ws; p.deathSent=false; players[id]=p;
       const cnt = Object.values(players).filter(p=>p.alive).length;
-      ws.send(JSON.stringify({type:'joined',id,spawnX:WORLD/2,spawnY:WORLD/2,worldSize:WORLD,playerCount:cnt}));
+      ws.send(JSON.stringify({type:'joined',id,spawnX:sx,spawnY:sy,worldSize:WORLD,playerCount:cnt}));
       console.log(`[join] ${msg.name} id=${id}`);
     }
 
@@ -187,9 +189,11 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'respawn') {
       const old = players[id];
-      const p = mkSnake(WORLD/2, WORLD/2, old?old.name:'Player', old?old.skinId:0);
+      const sx = 300 + Math.random() * (WORLD - 600);
+      const sy = 300 + Math.random() * (WORLD - 600);
+      const p = mkSnake(sx, sy, old?old.name:'Player', old?old.skinId:0);
       p.ws=ws; p.deathSent=false; players[id]=p;
-      ws.send(JSON.stringify({type:'joined',id,spawnX:WORLD/2,spawnY:WORLD/2,worldSize:WORLD}));
+      ws.send(JSON.stringify({type:'joined',id,spawnX:sx,spawnY:sy,worldSize:WORLD}));
     }
   });
 
