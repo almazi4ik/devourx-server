@@ -96,7 +96,10 @@ function killSnake(sn) {
     foods.push({
       x: Math.max(50, Math.min(WORLD-50, s.x+(Math.random()-0.5)*20)),
       y: Math.max(50, Math.min(WORLD-50, s.y+(Math.random()-0.5)*20)),
-      r: 9+Math.random()*3, color: `hsl(${Math.floor(Math.random()*360)},90%,65%)`, size: 'big'
+      r: 9+Math.random()*3,
+      color: `hsl(${Math.floor(Math.random()*360)},90%,65%)`,
+      size: 'big',
+      drop: true  // всегда видна всем
     });
   }
   if (foods.length > MAX_FOOD) foods.splice(0, foods.length - MAX_FOOD);
@@ -126,14 +129,21 @@ function checkCollisions() {
 function buildSnapshot(forId) {
   const me = players[forId];
   if (!me || !me.segs.length) return null;
+  const cx = me.segs[0].x, cy = me.segs[0].y;
+  const VX = 1400, VY = 900; // чуть больше экрана
   const nearPlayers = Object.entries(players).filter(([,p])=>p.alive).map(([id,p])=>({
     id, name: p.name, skinId: p.skinId, score: p.score,
     segs: p.segs.slice(0,750), boosting: p.boosting, isMe: id===forId
   }));
+  const nearFoods = foods.filter(f => {
+    if (f.drop) return true; // дропнутая еда всегда видна
+    const dx = Math.abs(f.x - cx), dy = Math.abs(f.y - cy);
+    return dx < VX && dy < VY;
+  });
   const leaderboard = Object.values(players).filter(s=>s.alive)
     .sort((a,b)=>b.score-a.score).slice(0,10)
     .map(s=>({ name:s.name, score:s.score, isMe:s===me }));
-  return { type:'world', players:nearPlayers, foods, leaderboard, myScore:me.score };
+  return { type:'world', players:nearPlayers, foods:nearFoods, leaderboard, myScore:me.score };
 }
 
 function gameTick() {
