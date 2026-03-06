@@ -5,7 +5,7 @@ const PORT = process.env.PORT || 3000;
 const WORLD = 12000;
 const TICK = 33;
 const MIN_LEN = 10;
-const MAX_BODY = 1000;
+const MAX_BODY = 600;   // ← было 1000, теперь 600 (хвост растёт до 600)
 const MAX_FOOD = 1400;
 
 const server = http.createServer((req, res) => {
@@ -69,7 +69,8 @@ function eatFood(sn) {
     const dx = h.x-f.x, dy = h.y-f.y;
     const er = (f.size==='big' ? f.r+8 : f.size==='medium' ? f.r+6 : f.r+4) + r;
     if (dx*dx + dy*dy < er*er) {
-      const g = f.size==='big' ? 3 : f.size==='medium' ? 2 : 1;
+      // ↓ БЫЛО: big=3, medium=2, small=1 — СТАЛО: big=10, medium=5, small=2
+      const g = f.size==='big' ? 10 : f.size==='medium' ? 5 : 2;
       if (sn.score < MAX_BODY) {
         sn.score = Math.min(MAX_BODY, sn.score+g);
         sn.length = Math.min(MAX_BODY, sn.length+g);
