@@ -5,8 +5,8 @@ const PORT = process.env.PORT || 3000;
 const WORLD = 12000;
 const TICK = 33;
 const MIN_LEN = 10;
-const MAX_BODY = 600;   // ← было 1000, теперь 600 (хвост растёт до 600)
-const MAX_FOOD = 1400;
+const MAX_BODY = 600;
+const MAX_FOOD = 2500;
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -22,12 +22,12 @@ let nextId = 1;
 function mkFood() {
   const rnd = Math.random();
   let size, r;
-  if (rnd < 0.55)      { size = 'small';  r = 3 + Math.random() * 2; }
-  else if (rnd < 0.85) { size = 'medium'; r = 6 + Math.random() * 2; }
-  else                  { size = 'big';    r = 9 + Math.random() * 3; }
+  if (rnd < 0.75)      { size = 'small';  r = 3 + Math.random() * 2; }
+  else if (rnd < 0.95) { size = 'medium'; r = 5 + Math.random() * 2; }
+  else                  { size = 'big';    r = 8 + Math.random() * 2; }
   return {
-    x: Math.random() * WORLD,
-    y: Math.random() * WORLD,
+    x: 200 + Math.random() * (WORLD - 400),
+    y: 200 + Math.random() * (WORLD - 400),
     r, color: `hsl(${Math.floor(Math.random()*360)},90%,65%)`, size
   };
 }
@@ -42,8 +42,11 @@ function mkSnake(x, y, name, skinId) {
   const segs = [];
   for (let i = 0; i < MIN_LEN; i++)
     segs.push({ x: x - Math.cos(angle)*i*14, y: y - Math.sin(angle)*i*14 });
-  return { x, y, name: name||'Player', skinId: skinId||0, angle, tAngle: angle,
-    speed: 2.8, boosting: false, alive: true, length: MIN_LEN, score: MIN_LEN, segs, turnSpeed: 0.18 };
+  return {
+    x, y, name: name||'Player', skinId: skinId||0, angle, tAngle: angle,
+    speed: 2.8, boosting: false, alive: true, length: MIN_LEN, score: MIN_LEN,
+    segs, turnSpeed: 0.18
+  };
 }
 
 function getR(score) { return 6 + (Math.min(score,1000)/1000)*22; }
@@ -67,9 +70,8 @@ function eatFood(sn) {
   for (let i = foods.length-1; i >= 0; i--) {
     const f = foods[i];
     const dx = h.x-f.x, dy = h.y-f.y;
-    const er = (f.size==='big' ? f.r+8 : f.size==='medium' ? f.r+6 : f.r+4) + r;
+    const er = (f.size==='big' ? f.r+10 : f.size==='medium' ? f.r+7 : f.r+5) + r;
     if (dx*dx + dy*dy < er*er) {
-      // ↓ БЫЛО: big=3, medium=2, small=1 — СТАЛО: big=10, medium=5, small=2
       const g = f.size==='big' ? 10 : f.size==='medium' ? 5 : 2;
       if (sn.score < MAX_BODY) {
         sn.score = Math.min(MAX_BODY, sn.score+g);
@@ -87,8 +89,10 @@ function killSnake(sn) {
   for (let i = 0; i < drop; i += 3) {
     const s = sn.segs[i];
     const idx = Math.floor(Math.random()*foods.length);
-    foods[idx] = { x: s.x+(Math.random()-0.5)*20, y: s.y+(Math.random()-0.5)*20,
-      r: 9+Math.random()*3, color: `hsl(${Math.floor(Math.random()*360)},90%,65%)`, size: 'big' };
+    foods[idx] = {
+      x: s.x+(Math.random()-0.5)*20, y: s.y+(Math.random()-0.5)*20,
+      r: 9+Math.random()*3, color: `hsl(${Math.floor(Math.random()*360)},90%,65%)`, size: 'big'
+    };
   }
 }
 
@@ -111,14 +115,14 @@ function checkCollisions() {
 function buildSnapshot(forId) {
   const me = players[forId];
   if (!me || !me.segs.length) return null;
-  const cx = me.segs[0].x, cy = me.segs[0].y, VIEW = 2000;
+  const cx = me.segs[0].x, cy = me.segs[0].y, VIEW = 2200;
   const nearPlayers = Object.entries(players).filter(([,p])=>p.alive).map(([id,p])=>({
     id, name: p.name, skinId: p.skinId, score: p.score,
-    segs: p.segs.slice(0,60), boosting: p.boosting, isMe: id===forId
+    segs: p.segs.slice(0,80), boosting: p.boosting, isMe: id===forId
   }));
   const nearFoods = foods.filter(f=>{
     const dx=f.x-cx, dy=f.y-cy; return dx*dx+dy*dy < VIEW*VIEW;
-  }).slice(0,400);
+  }).slice(0,600);
   const leaderboard = Object.values(players).filter(s=>s.alive)
     .sort((a,b)=>b.score-a.score).slice(0,10)
     .map(s=>({ name:s.name, score:s.score, isMe:s===me }));
@@ -129,8 +133,10 @@ function gameTick() {
   for (const id in players) {
     const p = players[id];
     if (!p.alive) continue;
-    updateSnake(p); eatFood(p);
-    if (p.boosting && p.length > MIN_LEN && Math.random() < 0.18) {
+    updateSnake(p);
+    eatFood(p);
+    // Ускорение снимает меньше хвоста — было 0.18, стало 0.05
+    if (p.boosting && p.length > MIN_LEN && Math.random() < 0.05) {
       p.length = Math.max(MIN_LEN, p.length-1);
       p.score  = Math.max(MIN_LEN, p.score-1);
     }
