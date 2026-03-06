@@ -105,7 +105,14 @@ function checkCollisions() {
       if (!other.alive || other === sn) continue;
       for (let i = 2; i < other.segs.length; i++) {
         const s = other.segs[i], dx = h.x-s.x, dy = h.y-s.y;
-        if (dx*dx + dy*dy < (r+getR(other.score)-2)**2) { killSnake(sn); break; }
+        if (dx*dx + dy*dy < (r+getR(other.score)-2)**2) {
+          killSnake(sn);
+          // +3 монеты тому чей хвост подбил
+          if (other.ws && other.ws.readyState === 1) {
+            other.ws.send(JSON.stringify({type:'kill_reward', coins:3}));
+          }
+          break;
+        }
       }
       if (!sn.alive) break;
     }
