@@ -118,7 +118,7 @@ function buildSnapshot(forId) {
   const cx = me.segs[0].x, cy = me.segs[0].y, VIEW = 2200;
   const nearPlayers = Object.entries(players).filter(([,p])=>p.alive).map(([id,p])=>({
     id, name: p.name, skinId: p.skinId, score: p.score,
-    segs: p.segs.slice(0,80), boosting: p.boosting, isMe: id===forId
+    segs: p.segs.slice(0,750), boosting: p.boosting, isMe: id===forId
   }));
   const nearFoods = foods.filter(f=>{
     const dx=f.x-cx, dy=f.y-cy; return dx*dx+dy*dy < VIEW*VIEW;
