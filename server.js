@@ -6,7 +6,7 @@ const WORLD = 4000;
 const TICK = 33;
 const MIN_LEN = 10;
 const MAX_BODY = 750;
-const MAX_FOOD = 2500;
+const MAX_FOOD = 600;
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
