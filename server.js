@@ -44,7 +44,7 @@ function mkSnake(x, y, name, skinId) {
     segs.push({ x: x - Math.cos(angle)*i*14, y: y - Math.sin(angle)*i*14 });
   return {
     x, y, name: name||'Player', skinId: skinId||0, angle, tAngle: angle,
-    speed: 2.8, boosting: false, devour: false, alive: true, length: MIN_LEN, score: MIN_LEN,
+    speed: 2.8, boosting: false, alive: true, length: MIN_LEN, score: MIN_LEN,
     segs, turnSpeed: 0.18
   };
 }
@@ -72,9 +72,7 @@ function eatFood(sn) {
     const dx = h.x-f.x, dy = h.y-f.y;
     const er = (f.size==='big' ? f.r+10 : f.size==='medium' ? f.r+7 : f.r+5) + r;
     if (dx*dx + dy*dy < er*er) {
-      let g = f.size==='big' ? 10 : f.size==='medium' ? 5 : 2;
-      // Пожиратель — x2 очки
-      if (sn.devour) g *= 2;
+      const g = f.size==='big' ? 10 : f.size==='medium' ? 5 : 2;
       // Очки растут бесконечно
       sn.score += g;
       // Хвост растёт только до MAX_BODY
@@ -174,8 +172,8 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'input') {
       const p = players[id]; if (!p||!p.alive) return;
-      p.tAngle=msg.angle; p.boosting=msg.boost && p.length>MIN_LEN;
-      p.devour=!!msg.devour; // флаг пожирателя
+      p.tAngle=msg.angle;
+      p.boosting=msg.boost && p.length>MIN_LEN;
     }
 
     if (msg.type === 'respawn') {
