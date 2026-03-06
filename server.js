@@ -60,7 +60,7 @@ function updateSnake(sn) {
   const spd = sn.boosting ? sn.speed*1.85 : sn.speed;
   const hx = sn.segs[0].x + Math.cos(sn.angle)*spd;
   const hy = sn.segs[0].y + Math.sin(sn.angle)*spd;
-  if (hx <= 0 || hx >= WORLD || hy <= 0 || hy >= WORLD) { killSnake(sn); return; }
+  if (hx <= 10 || hx >= WORLD-10 || hy <= 10 || hy >= WORLD-10) { killSnake(sn); return; }
   sn.segs.unshift({ x: hx, y: hy });
   while (sn.segs.length > sn.length) sn.segs.pop();
 }
@@ -93,12 +93,13 @@ function killSnake(sn) {
   const drop = Math.min(sn.segs.length, 80);
   for (let i = 0; i < drop; i += 3) {
     const s = sn.segs[i];
-    const idx = Math.floor(Math.random()*foods.length);
-    foods[idx] = {
-      x: s.x+(Math.random()-0.5)*20, y: s.y+(Math.random()-0.5)*20,
+    foods.push({
+      x: Math.max(50, Math.min(WORLD-50, s.x+(Math.random()-0.5)*20)),
+      y: Math.max(50, Math.min(WORLD-50, s.y+(Math.random()-0.5)*20)),
       r: 9+Math.random()*3, color: `hsl(${Math.floor(Math.random()*360)},90%,65%)`, size: 'big'
-    };
+    });
   }
+  if (foods.length > MAX_FOOD) foods.splice(0, foods.length - MAX_FOOD);
 }
 
 function checkCollisions() {
