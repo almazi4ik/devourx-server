@@ -4,17 +4,18 @@ const http = require('http');
 const PORT = process.env.PORT || 3000;
 const WORLD = 4000;
 const TICK = 33;
+const TICK_IDLE = 5000; // тик когда нет игроков (1 раз в 5 сек вместо 30/сек)
 const MIN_LEN = 10;
 const MAX_BODY = 1350;
-const MAX_BODY_SLOW = 750; // после этого растёт в 2 раза медленней
+const MAX_BODY_SLOW = 750;
 const MAX_FOOD = 600;
 
 // ═══ ГЛОБАЛЬНАЯ ТАБЛИЦА РЕКОРДОВ ═══
-let globalTop = []; // {name, score, skinId, date}
+let globalTop = [];
 const TOP_SIZE = 100;
 
 function submitScore(name, score, skinId) {
-  if (score < 50) return; // минимальный порог
+  if (score < 50) return;
   globalTop.push({ name, score, skinId, date: Date.now() });
   globalTop.sort((a,b) => b.score - a.score);
   if (globalTop.length > TOP_SIZE) globalTop = globalTop.slice(0, TOP_SIZE);
@@ -25,7 +26,6 @@ function getTop(n=10) {
 }
 
 const server = http.createServer((req, res) => {
-  // HTTP endpoint для получения таблицы (можно использовать для отладки)
   if (req.url === '/top') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin':'*' });
     res.end(JSON.stringify(getTop(50)));
@@ -40,6 +40,35 @@ const wss = new WebSocket.Server({ server });
 let foods = [];
 let players = {};
 let nextId = 1;
+
+// ═══ ДИНАМИЧЕСКИЙ ТИК ═══
+let tickInterval = null;
+let currentTickRate = null;
+
+function getAlivePlayers() {
+  return Object.values(players).filter(p => p.alive).length;
+}
+
+function startTick(rate) {
+  if (currentTickRate === rate) return; // уже на нужной скорости
+  if (tickInterval) clearInterval(tickInterval);
+  currentTickRate = rate;
+  tickInterval = setInterval(gameTick, rate);
+  if (rate === TICK_IDLE) {
+    console.log('😴 Нет игроков — замедляю тик до 5с (экономия CPU)');
+  } else {
+    console.log('⚡ Игрок зашёл — полная скорость (33мс тик)');
+  }
+}
+
+function adjustTick() {
+  const alive = getAlivePlayers();
+  if (alive === 0) {
+    startTick(TICK_IDLE);
+  } else {
+    startTick(TICK);
+  }
+}
 
 function mkFood() {
   const rnd = Math.random();
@@ -100,7 +129,6 @@ function eatFood(sn) {
         if (sn.length < MAX_BODY_SLOW) {
           sn.length = Math.min(MAX_BODY_SLOW, sn.length + g);
         } else {
-          // после 750 растём в 2 раза медленней, накапливаем дробные значения
           sn._growBuf = (sn._growBuf || 0) + g;
           if (sn._growBuf >= 2) {
             const add = Math.floor(sn._growBuf / 2);
@@ -109,7 +137,6 @@ function eatFood(sn) {
           }
         }
       }
-      // 1 монета за каждые 3 еды (считаем штуки, не очки)
       sn.foodEaten = (sn.foodEaten||0) + 1;
       if (sn.foodEaten >= 3) {
         sn.foodEaten -= 3;
@@ -125,7 +152,6 @@ function killSnake(sn) {
   if (!sn.alive) return;
   sn.alive = false;
 
-  // Количество еды = score / 2, минимум 1, максимум 200
   const dropCount = Math.max(1, Math.min(200, Math.floor(sn.score / 2)));
   const totalSegs = sn.segs.length;
   const step = Math.max(1, Math.floor(totalSegs / dropCount));
@@ -170,13 +196,13 @@ function buildSnapshot(forId) {
   const me = players[forId];
   if (!me || !me.segs.length) return null;
   const cx = me.segs[0].x, cy = me.segs[0].y;
-  const VX = 1400, VY = 900; // чуть больше экрана
+  const VX = 1400, VY = 900;
   const nearPlayers = Object.entries(players).filter(([,p])=>p.alive).map(([id,p])=>({
     id, name: p.name, skinId: p.skinId, score: p.score,
     segs: p.segs.slice(0,750), boosting: p.boosting, isMe: id===forId
   }));
   const nearFoods = foods.filter(f => {
-    if (f.drop) return true; // дропнутая еда всегда видна
+    if (f.drop) return true;
     const dx = Math.abs(f.x - cx), dy = Math.abs(f.y - cy);
     return dx < VX && dy < VY;
   });
@@ -187,6 +213,10 @@ function buildSnapshot(forId) {
 }
 
 function gameTick() {
+  // Если нет живых игроков — ничего не делаем (тик идёт редко)
+  const alive = Object.values(players).filter(p => p.alive);
+  if (alive.length === 0) return;
+
   for (const id in players) {
     const p = players[id];
     if (!p.alive) continue;
@@ -198,7 +228,8 @@ function gameTick() {
     }
   }
   checkCollisions();
-  const playerCount = Object.values(players).filter(p=>p.alive).length;
+
+  const playerCount = alive.length;
   for (const id in players) {
     const p = players[id], ws = p.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) continue;
@@ -230,6 +261,7 @@ wss.on('connection', (ws) => {
       const cnt = Object.values(players).filter(p=>p.alive).length;
       ws.send(JSON.stringify({type:'joined',id,spawnX:sx,spawnY:sy,worldSize:WORLD,playerCount:cnt,globalTop:getTop(10)}));
       console.log(`[join] ${msg.name} id=${id}`);
+      adjustTick(); // ускоряем тик
     }
 
     if (msg.type === 'get_top') {
@@ -249,19 +281,22 @@ wss.on('connection', (ws) => {
       const p = mkSnake(sx, sy, old?old.name:'Player', old?old.skinId:0);
       p.ws=ws; p.deathSent=false; players[id]=p;
       ws.send(JSON.stringify({type:'joined',id,spawnX:sx,spawnY:sy,worldSize:WORLD}));
+      adjustTick(); // ускоряем тик
     }
   });
 
   ws.on('close', () => {
     console.log(`[-] ${id} отключился`);
     if (players[id]) { killSnake(players[id]); delete players[id]; }
+    adjustTick(); // замедляем тик если никого нет
   });
 
   ws.on('error', () => {
     if (players[id]) { killSnake(players[id]); delete players[id]; }
+    adjustTick(); // замедляем тик если никого нет
   });
 });
 
 initFoods();
-setInterval(gameTick, TICK);
+startTick(TICK_IDLE); // стартуем в режиме ожидания
 server.listen(PORT, () => console.log(`DevourX запущен на порту ${PORT}`));
