@@ -124,11 +124,13 @@ function eatFood(sn) {
 function killSnake(sn) {
   if (!sn.alive) return;
   sn.alive = false;
+
+  // Количество еды = score / 2, минимум 1, максимум 200
+  const dropCount = Math.max(1, Math.min(200, Math.floor(sn.score / 2)));
   const totalSegs = sn.segs.length;
-  // Еда равномерно по всему хвосту: каждые 3 сегмента
-  const step = 3;
-  const maxDrop = Math.floor(totalSegs / step);
-  for (let i = 0; i < maxDrop; i++) {
+  const step = Math.max(1, Math.floor(totalSegs / dropCount));
+
+  for (let i = 0; i < dropCount; i++) {
     const idx = Math.min(i * step, totalSegs - 1);
     const s = sn.segs[idx];
     foods.push({
