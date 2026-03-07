@@ -45,26 +45,33 @@ let nextBotId = 1;
 // ═══════════════════════════════════════
 // НИКНЕЙМЫ БОТОВ — как у реальных игроков
 // ═══════════════════════════════════════
-const BOT_NAME_BASES = [
-  'Player','Player1','xPlayer','ProPlayer','Player111','Player223','Player99',
-  'xXPlayerXx','Gamer','xGamer','Pro99','Snake99','SnakeKing','ViperX',
-  'FastSnake','SlimX','NoodleX','ZigZag','Mamba99','Cobra1','Python3',
-  'Adder77','TopSnake','BossX','KingX','RaiderX','Alpha1','BetaX','GammaX',
-  'DeltaX','OmegaX','ZeroX','SpeedX','NightX','DarkX','StormX','BladeX',
-];
+const BOT_NAME_BASES = ['Player'];
 
 function mkBotName() {
-  const base = BOT_NAME_BASES[Math.floor(Math.random() * BOT_NAME_BASES.length)];
-  const suffix = Math.random() < 0.45 ? '' : (Math.floor(Math.random()*9000)+100).toString();
-  return base + suffix;
+  // Генерим ник типа Player, Player1, Player123, Player111223 и т.д.
+  const styles = [
+    () => 'Player',
+    () => 'Player' + (Math.floor(Math.random()*9)+1),
+    () => 'Player' + (Math.floor(Math.random()*90)+10),
+    () => 'Player' + (Math.floor(Math.random()*900)+100),
+    () => 'Player' + (Math.floor(Math.random()*9000)+1000),
+    () => 'Player' + (Math.floor(Math.random()*90000)+10000),
+    () => 'Player' + (Math.floor(Math.random()*900000)+100000),
+  ];
+  const weights = [0.05, 0.1, 0.15, 0.25, 0.25, 0.15, 0.05];
+  let r = Math.random(), acc = 0;
+  for (let i = 0; i < styles.length; i++) {
+    acc += weights[i];
+    if (r < acc) return styles[i]();
+  }
+  return 'Player' + Math.floor(Math.random()*9999);
 }
 
 // Сколько ботов держать на сервере (подстраивается под число игроков)
 const BOT_BASE_COUNT = 2; // минимум всегда 2
 
 function targetBotCount() {
-  const realPlayers = Object.values(players).filter(p => p.alive).length;
-  return BOT_BASE_COUNT + realPlayers; // 2 бота + по 1 на каждого игрока
+  return BOT_BASE_COUNT; // всегда 2 бота, они сами добавляются в счётчик онлайна
 }
 
 // ═══════════════════════════════════════
@@ -269,21 +276,30 @@ function botAI(bot) {
     const dx = ph.x - h.x, dy = ph.y - h.y;
     const dist = Math.sqrt(closestDist);
 
-    if (dist > 700) {
-      // Далеко — мчим напрямую
-      sn.tAngle = Math.atan2(dy, dx) + (Math.random()-.5)*0.12;
+    // Вычислить направление движения игрока из его сегментов
+    let playerDirX = 0, playerDirY = 0;
+    if (closestPlayer.segs.length >= 2) {
+      const s1 = closestPlayer.segs[0], s2 = closestPlayer.segs[1];
+      const pdx = s1.x - s2.x, pdy = s1.y - s2.y;
+      const plen = Math.sqrt(pdx*pdx + pdy*pdy) || 1;
+      playerDirX = pdx / plen;
+      playerDirY = pdy / plen;
+    }
+
+    if (dist > 800) {
+      // Далеко — мчим напрямую к голове
+      sn.tAngle = Math.atan2(dy, dx) + (Math.random()-.5)*0.1;
       sn.boosting = dist > 1400 && sn.score > MIN_LEN*2;
-    } else if (dist > 160) {
-      // Среднее расстояние — перехватываем с упреждением
-      const ang = Math.atan2(dy, dx);
-      const lead = 90;
-      sn.tAngle = Math.atan2(
-        ph.y + Math.sin(ang)*lead - h.y,
-        ph.x + Math.cos(ang)*lead - h.x
-      );
-      sn.boosting = dist > 300 && sn.score > MIN_LEN*1.5;
-      // Иногда начать спин чтобы отрезать
-      if (dist < 350 && Math.random() < 0.07) sn._spinTimer = 12;
+    } else if (dist > 180) {
+      // Среднее расстояние — перехват: целимся ПЕРЕД головой игрока
+      // Упреждение пропорционально дистанции и скорости игрока
+      const leadDist = Math.min(dist * 0.55, 280);
+      const aimX = ph.x + playerDirX * leadDist;
+      const aimY = ph.y + playerDirY * leadDist;
+      sn.tAngle = Math.atan2(aimY - h.y, aimX - h.x);
+      sn.boosting = dist > 280 && sn.score > MIN_LEN*1.5;
+      // Спин-ловушка если близко
+      if (dist < 320 && Math.random() < 0.06) sn._spinTimer = 14;
     } else {
       // Вплотную — буст прямо в голову
       sn.tAngle = Math.atan2(dy, dx);
