@@ -5,10 +5,32 @@ const PORT = process.env.PORT || 3000;
 const WORLD = 4000;
 const TICK = 33;
 const MIN_LEN = 10;
-const MAX_BODY = 750;
+const MAX_BODY = 1350;
+const MAX_BODY_SLOW = 750; // после этого растёт в 2 раза медленней
 const MAX_FOOD = 600;
 
+// ═══ ГЛОБАЛЬНАЯ ТАБЛИЦА РЕКОРДОВ ═══
+let globalTop = []; // {name, score, skinId, date}
+const TOP_SIZE = 100;
+
+function submitScore(name, score, skinId) {
+  if (score < 50) return; // минимальный порог
+  globalTop.push({ name, score, skinId, date: Date.now() });
+  globalTop.sort((a,b) => b.score - a.score);
+  if (globalTop.length > TOP_SIZE) globalTop = globalTop.slice(0, TOP_SIZE);
+}
+
+function getTop(n=10) {
+  return globalTop.slice(0, n).map((r,i) => ({rank:i+1, name:r.name, score:r.score, skinId:r.skinId}));
+}
+
 const server = http.createServer((req, res) => {
+  // HTTP endpoint для получения таблицы (можно использовать для отладки)
+  if (req.url === '/top') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin':'*' });
+    res.end(JSON.stringify(getTop(50)));
+    return;
+  }
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('DevourX Server OK');
 });
@@ -74,7 +96,19 @@ function eatFood(sn) {
     if (dx*dx + dy*dy < er*er) {
       const g = f.size==='big' ? 10 : f.size==='medium' ? 5 : 2;
       sn.score += g;
-      if (sn.length < MAX_BODY) sn.length = Math.min(MAX_BODY, sn.length + g);
+      if (sn.length < MAX_BODY) {
+        if (sn.length < MAX_BODY_SLOW) {
+          sn.length = Math.min(MAX_BODY_SLOW, sn.length + g);
+        } else {
+          // после 750 растём в 2 раза медленней, накапливаем дробные значения
+          sn._growBuf = (sn._growBuf || 0) + g;
+          if (sn._growBuf >= 2) {
+            const add = Math.floor(sn._growBuf / 2);
+            sn._growBuf -= add * 2;
+            sn.length = Math.min(MAX_BODY, sn.length + add);
+          }
+        }
+      }
       // 1 монета за каждые 3 еды (считаем штуки, не очки)
       sn.foodEaten = (sn.foodEaten||0) + 1;
       if (sn.foodEaten >= 3) {
@@ -90,19 +124,23 @@ function eatFood(sn) {
 function killSnake(sn) {
   if (!sn.alive) return;
   sn.alive = false;
-  const drop = Math.min(sn.segs.length, 80);
-  for (let i = 0; i < drop; i += 3) {
-    const s = sn.segs[i];
+  const totalSegs = sn.segs.length;
+  // Еда равномерно по всему хвосту: каждые 3 сегмента
+  const step = 3;
+  const maxDrop = Math.floor(totalSegs / step);
+  for (let i = 0; i < maxDrop; i++) {
+    const idx = Math.min(i * step, totalSegs - 1);
+    const s = sn.segs[idx];
     foods.push({
       x: Math.max(50, Math.min(WORLD-50, s.x+(Math.random()-0.5)*20)),
       y: Math.max(50, Math.min(WORLD-50, s.y+(Math.random()-0.5)*20)),
       r: 9+Math.random()*3,
       color: `hsl(${Math.floor(Math.random()*360)},90%,65%)`,
       size: 'big',
-      drop: true  // всегда видна всем
+      drop: true
     });
   }
-  if (foods.length > MAX_FOOD) foods.splice(0, foods.length - MAX_FOOD);
+  if (foods.length > MAX_FOOD + 200) foods.splice(0, foods.length - (MAX_FOOD + 200));
 }
 
 function checkCollisions() {
@@ -163,7 +201,11 @@ function gameTick() {
     const p = players[id], ws = p.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) continue;
     if (!p.alive) {
-      if (!p.deathSent) { p.deathSent=true; ws.send(JSON.stringify({type:'dead',score:p.score})); }
+      if (!p.deathSent) {
+        p.deathSent = true;
+        submitScore(p.name, p.score, p.skinId);
+        ws.send(JSON.stringify({type:'dead', score:p.score, globalTop: getTop(10)}));
+      }
       continue;
     }
     const snap = buildSnapshot(id);
@@ -184,8 +226,12 @@ wss.on('connection', (ws) => {
       const p = mkSnake(sx, sy, msg.name||'Player', msg.skinId||0);
       p.ws=ws; p.deathSent=false; players[id]=p;
       const cnt = Object.values(players).filter(p=>p.alive).length;
-      ws.send(JSON.stringify({type:'joined',id,spawnX:sx,spawnY:sy,worldSize:WORLD,playerCount:cnt}));
+      ws.send(JSON.stringify({type:'joined',id,spawnX:sx,spawnY:sy,worldSize:WORLD,playerCount:cnt,globalTop:getTop(10)}));
       console.log(`[join] ${msg.name} id=${id}`);
+    }
+
+    if (msg.type === 'get_top') {
+      ws.send(JSON.stringify({type:'global_top', top: getTop(50)}));
     }
 
     if (msg.type === 'input') {
