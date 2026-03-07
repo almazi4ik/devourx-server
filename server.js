@@ -6,15 +6,15 @@ const WORLD = 4000;
 const TICK = 33;
 const MIN_LEN = 10;
 const MAX_BODY = 1350;
-const MAX_BODY_SLOW = 750; // после этого растёт в 2 раза медленней
+const MAX_BODY_SLOW = 750;
 const MAX_FOOD = 600;
 
 // ═══ ГЛОБАЛЬНАЯ ТАБЛИЦА РЕКОРДОВ ═══
-let globalTop = []; // {name, score, skinId, date}
+let globalTop = [];
 const TOP_SIZE = 100;
 
 function submitScore(name, score, skinId) {
-  if (score < 50) return; // минимальный порог
+  if (score < 50) return;
   globalTop.push({ name, score, skinId, date: Date.now() });
   globalTop.sort((a,b) => b.score - a.score);
   if (globalTop.length > TOP_SIZE) globalTop = globalTop.slice(0, TOP_SIZE);
@@ -25,7 +25,6 @@ function getTop(n=10) {
 }
 
 const server = http.createServer((req, res) => {
-  // HTTP endpoint для получения таблицы (можно использовать для отладки)
   if (req.url === '/top') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin':'*' });
     res.end(JSON.stringify(getTop(50)));
@@ -100,7 +99,6 @@ function eatFood(sn) {
         if (sn.length < MAX_BODY_SLOW) {
           sn.length = Math.min(MAX_BODY_SLOW, sn.length + g);
         } else {
-          // после 750 растём в 2 раза медленней, накапливаем дробные значения
           sn._growBuf = (sn._growBuf || 0) + g;
           if (sn._growBuf >= 2) {
             const add = Math.floor(sn._growBuf / 2);
@@ -109,7 +107,6 @@ function eatFood(sn) {
           }
         }
       }
-      // 1 монета за каждые 3 еды (считаем штуки, не очки)
       sn.foodEaten = (sn.foodEaten||0) + 1;
       if (sn.foodEaten >= 3) {
         sn.foodEaten -= 3;
@@ -125,8 +122,10 @@ function killSnake(sn) {
   if (!sn.alive) return;
   sn.alive = false;
 
-  // Количество еды = score / 2, минимум 1, максимум 200
-  const dropCount = Math.max(1, Math.min(200, Math.floor(sn.score / 2)));
+  // Кол-во дроп-единиц = score / 2 (половина массы)
+  // Каждая дроп-единица = маленькая точка (2 очка) → итого ~= score / 2 * 2 = score очков
+  // Это честно: убив кого-то получаешь не больше его массы
+  const dropCount = Math.max(1, Math.min(300, Math.floor(sn.score / 2)));
   const totalSegs = sn.segs.length;
   const step = Math.max(1, Math.floor(totalSegs / dropCount));
 
@@ -134,15 +133,17 @@ function killSnake(sn) {
     const idx = Math.min(i * step, totalSegs - 1);
     const s = sn.segs[idx];
     foods.push({
-      x: Math.max(50, Math.min(WORLD-50, s.x+(Math.random()-0.5)*20)),
-      y: Math.max(50, Math.min(WORLD-50, s.y+(Math.random()-0.5)*20)),
-      r: 9+Math.random()*3,
+      x: Math.max(50, Math.min(WORLD-50, s.x + (Math.random()-0.5)*24)),
+      y: Math.max(50, Math.min(WORLD-50, s.y + (Math.random()-0.5)*24)),
+      // МАЛЕНЬКИЕ точки: r=3-5, size='small' → 2 очка за штуку
+      // Итого: score/2 штук * 2 очка = score очков (честная награда = масса врага)
+      r: 3 + Math.random() * 2,
       color: `hsl(${Math.floor(Math.random()*360)},90%,65%)`,
-      size: 'big',
+      size: 'small',
       drop: true
     });
   }
-  if (foods.length > MAX_FOOD + 200) foods.splice(0, foods.length - (MAX_FOOD + 200));
+  if (foods.length > MAX_FOOD + 300) foods.splice(0, foods.length - (MAX_FOOD + 300));
 }
 
 function checkCollisions() {
@@ -170,13 +171,13 @@ function buildSnapshot(forId) {
   const me = players[forId];
   if (!me || !me.segs.length) return null;
   const cx = me.segs[0].x, cy = me.segs[0].y;
-  const VX = 1400, VY = 900; // чуть больше экрана
+  const VX = 1400, VY = 900;
   const nearPlayers = Object.entries(players).filter(([,p])=>p.alive).map(([id,p])=>({
     id, name: p.name, skinId: p.skinId, score: p.score,
     segs: p.segs.slice(0,750), boosting: p.boosting, isMe: id===forId
   }));
   const nearFoods = foods.filter(f => {
-    if (f.drop) return true; // дропнутая еда всегда видна
+    if (f.drop) return true;
     const dx = Math.abs(f.x - cx), dy = Math.abs(f.y - cy);
     return dx < VX && dy < VY;
   });
