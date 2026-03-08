@@ -10,6 +10,22 @@ const MAX_BODY = 1350;
 const MAX_BODY_SLOW = 750;
 const MAX_FOOD = 600;
 
+// Viewport size for nearby filtering
+const VIEW_X = 1600;
+const VIEW_Y = 1000;
+const MAX_SEGS_SEND = 250; // было 750
+
+// Лидерборд обновляем раз в 10 тиков
+let lbTickCounter = 0;
+let cachedLeaderboard = [];
+
+// ═══ ФОРМАТИРОВАНИЕ ЧИСЛА ═══
+function fmtScore(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1000)    return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return String(n);
+}
+
 // ═══ ГЛОБАЛЬНАЯ ТАБЛИЦА РЕКОРДОВ ═══
 let globalTop = [];
 const TOP_SIZE = 100;
@@ -17,17 +33,23 @@ const TOP_SIZE = 100;
 function submitScore(name, score, skinId) {
   if (score < 50) return;
   globalTop.push({ name, score, skinId, date: Date.now() });
-  globalTop.sort((a,b) => b.score - a.score);
+  globalTop.sort((a, b) => b.score - a.score);
   if (globalTop.length > TOP_SIZE) globalTop = globalTop.slice(0, TOP_SIZE);
 }
 
-function getTop(n=10) {
-  return globalTop.slice(0, n).map((r,i) => ({rank:i+1, name:r.name, score:r.score, skinId:r.skinId}));
+function getTop(n = 10) {
+  return globalTop.slice(0, n).map((r, i) => ({
+    rank: i + 1,
+    name: r.name,
+    score: r.score,
+    scoreStr: fmtScore(r.score),
+    skinId: r.skinId
+  }));
 }
 
 const server = http.createServer((req, res) => {
   if (req.url === '/top') {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin':'*' });
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify(getTop(50)));
     return;
   }
@@ -77,9 +99,11 @@ function mkFood() {
   else if (rnd < 0.95) { size = 'medium'; r = 5 + Math.random() * 2; }
   else                  { size = 'big';    r = 8 + Math.random() * 2; }
   return {
-    x: 200 + Math.random() * (WORLD - 400),
-    y: 200 + Math.random() * (WORLD - 400),
-    r, color: `hsl(${Math.floor(Math.random()*360)},90%,65%)`, size
+    x: Math.round(200 + Math.random() * (WORLD - 400)),
+    y: Math.round(200 + Math.random() * (WORLD - 400)),
+    r: Math.round(r * 10) / 10,
+    color: `hsl(${Math.floor(Math.random() * 360)},90%,65%)`,
+    size
   };
 }
 
@@ -92,15 +116,15 @@ function mkSnake(x, y, name, skinId) {
   const angle = Math.random() * Math.PI * 2;
   const segs = [];
   for (let i = 0; i < MIN_LEN; i++)
-    segs.push({ x: x - Math.cos(angle)*i*14, y: y - Math.sin(angle)*i*14 });
+    segs.push({ x: Math.round(x - Math.cos(angle) * i * 14), y: Math.round(y - Math.sin(angle) * i * 14) });
   return {
-    x, y, name: name||'Player', skinId: skinId||0, angle, tAngle: angle,
+    x, y, name: name || 'Player', skinId: skinId || 0, angle, tAngle: angle,
     speed: 2.8, boosting: false, alive: true, length: MIN_LEN, score: MIN_LEN,
     segs, turnSpeed: 0.18, skinColor: '#f9ca24'
   };
 }
 
-function getR(score) { return 6 + (Math.min(score,1000)/1000)*22; }
+function getR(score) { return 6 + (Math.min(score, 1000) / 1000) * 22; }
 
 function getTurnSpeed(score) {
   const t = Math.min(score, 1000) / 1000;
@@ -110,39 +134,39 @@ function getTurnSpeed(score) {
 function updateSnake(sn) {
   if (!sn.alive) return;
   let da = sn.tAngle - sn.angle;
-  while (da > Math.PI) da -= Math.PI*2;
-  while (da < -Math.PI) da += Math.PI*2;
+  while (da > Math.PI) da -= Math.PI * 2;
+  while (da < -Math.PI) da += Math.PI * 2;
   sn.angle += da * getTurnSpeed(sn.score);
-  const spd = sn.boosting ? sn.speed*1.85 : sn.speed;
-  const hx = sn.segs[0].x + Math.cos(sn.angle)*spd;
-  const hy = sn.segs[0].y + Math.sin(sn.angle)*spd;
-  if (hx <= 10 || hx >= WORLD-10 || hy <= 10 || hy >= WORLD-10) { killSnake(sn); return; }
-  sn.segs.unshift({ x: hx, y: hy });
+  const spd = sn.boosting ? sn.speed * 1.85 : sn.speed;
+  const hx = sn.segs[0].x + Math.cos(sn.angle) * spd;
+  const hy = sn.segs[0].y + Math.sin(sn.angle) * spd;
+  if (hx <= 10 || hx >= WORLD - 10 || hy <= 10 || hy >= WORLD - 10) { killSnake(sn); return; }
+  sn.segs.unshift({ x: Math.round(hx), y: Math.round(hy) });
   while (sn.segs.length > sn.length) sn.segs.pop();
 
   const segDist = 8;
   for (let i = 1; i < sn.segs.length; i++) {
-    const prev = sn.segs[i-1];
+    const prev = sn.segs[i - 1];
     const curr = sn.segs[i];
     const dx = prev.x - curr.x;
     const dy = prev.y - curr.y;
-    const dist = Math.sqrt(dx*dx + dy*dy);
+    const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist > segDist) {
       const ratio = (dist - segDist) / dist;
-      curr.x += dx * ratio;
-      curr.y += dy * ratio;
+      curr.x = Math.round(curr.x + dx * ratio);
+      curr.y = Math.round(curr.y + dy * ratio);
     }
   }
 }
 
 function eatFood(sn) {
   const h = sn.segs[0], r = getR(sn.score);
-  for (let i = foods.length-1; i >= 0; i--) {
+  for (let i = foods.length - 1; i >= 0; i--) {
     const f = foods[i];
-    const dx = h.x-f.x, dy = h.y-f.y;
-    const er = (f.size==='big' ? f.r+10 : f.size==='medium' ? f.r+7 : f.r+5) + r;
-    if (dx*dx + dy*dy < er*er) {
-      const g = f.size==='big' ? 10 : f.size==='medium' ? 5 : 2;
+    const dx = h.x - f.x, dy = h.y - f.y;
+    const er = (f.size === 'big' ? f.r + 10 : f.size === 'medium' ? f.r + 7 : f.r + 5) + r;
+    if (dx * dx + dy * dy < er * er) {
+      const g = f.size === 'big' ? 10 : f.size === 'medium' ? 5 : 2;
       sn.score += g;
       if (sn.length < MAX_BODY) {
         if (sn.length < MAX_BODY_SLOW) {
@@ -156,11 +180,11 @@ function eatFood(sn) {
           }
         }
       }
-      sn.foodEaten = (sn.foodEaten||0) + 1;
+      sn.foodEaten = (sn.foodEaten || 0) + 1;
       if (sn.foodEaten >= 3) {
         sn.foodEaten -= 3;
         if (sn.ws && sn.ws.readyState === 1)
-          sn.ws.send(JSON.stringify({type:'coin_reward', coins:1}));
+          sn.ws.send(JSON.stringify({ type: 'coin_reward', coins: 1 }));
       }
       foods[i] = mkFood();
     }
@@ -179,10 +203,10 @@ function killSnake(sn) {
     const idx = Math.min(i * step, totalSegs - 1);
     const s = sn.segs[idx];
     foods.push({
-      x: Math.max(50, Math.min(WORLD-50, s.x+(Math.random()-0.5)*20)),
-      y: Math.max(50, Math.min(WORLD-50, s.y+(Math.random()-0.5)*20)),
-      r: 9+Math.random()*3,
-      color: `hsl(${Math.floor(Math.random()*360)},90%,65%)`,
+      x: Math.round(Math.max(50, Math.min(WORLD - 50, s.x + (Math.random() - 0.5) * 20))),
+      y: Math.round(Math.max(50, Math.min(WORLD - 50, s.y + (Math.random() - 0.5) * 20))),
+      r: 9 + Math.random() * 3,
+      color: `hsl(${Math.floor(Math.random() * 360)},90%,65%)`,
       size: 'big',
       drop: true
     });
@@ -198,11 +222,11 @@ function checkCollisions() {
     for (const other of alive) {
       if (!other.alive || other === sn) continue;
       for (let i = 2; i < other.segs.length; i++) {
-        const s = other.segs[i], dx = h.x-s.x, dy = h.y-s.y;
-        if (dx*dx + dy*dy < (r+getR(other.score)-2)**2) {
+        const s = other.segs[i], dx = h.x - s.x, dy = h.y - s.y;
+        if (dx * dx + dy * dy < (r + getR(other.score) - 2) ** 2) {
           killSnake(sn);
           if (other.ws && other.ws.readyState === 1)
-            other.ws.send(JSON.stringify({type:'kill_reward', coins:3}));
+            other.ws.send(JSON.stringify({ type: 'kill_reward', coins: 3 }));
           break;
         }
       }
@@ -215,20 +239,53 @@ function buildSnapshot(forId) {
   const me = players[forId];
   if (!me || !me.segs.length) return null;
   const cx = me.segs[0].x, cy = me.segs[0].y;
-  const VX = 1400, VY = 900;
-  const nearPlayers = Object.entries(players).filter(([,p])=>p.alive).map(([id,p])=>({
-    id, name: p.name, skinId: p.skinId, score: p.score,
-    segs: p.segs.slice(0,750), boosting: p.boosting, isMe: id===forId
-  }));
+
+  // ═══ Только ближние игроки ═══
+  const nearPlayers = Object.entries(players)
+    .filter(([, p]) => p.alive)
+    .filter(([id, p]) => {
+      if (id === forId) return true; // всегда включаем себя
+      const ph = p.segs[0];
+      return Math.abs(ph.x - cx) < VIEW_X && Math.abs(ph.y - cy) < VIEW_Y;
+    })
+    .map(([id, p]) => ({
+      id,
+      name: p.name,
+      skinId: p.skinId,
+      score: p.score,
+      scoreStr: fmtScore(p.score),
+      // ═══ Урезаем сегменты до MAX_SEGS_SEND ═══
+      segs: p.segs.slice(0, MAX_SEGS_SEND),
+      boosting: p.boosting,
+      isMe: id === forId
+    }));
+
+  // ═══ Только ближняя еда ═══
   const nearFoods = foods.filter(f => {
     if (f.drop) return true;
     const dx = Math.abs(f.x - cx), dy = Math.abs(f.y - cy);
-    return dx < VX && dy < VY;
+    return dx < VIEW_X && dy < VIEW_Y;
   });
-  const leaderboard = Object.values(players).filter(s=>s.alive)
-    .sort((a,b)=>b.score-a.score).slice(0,10)
-    .map(s=>({ name:s.name, score:s.score, isMe:s===me }));
-  return { type:'world', players:nearPlayers, foods:nearFoods, leaderboard, myScore:me.score };
+
+  // ═══ Лидерборд раз в 10 тиков ═══
+  lbTickCounter++;
+  if (lbTickCounter >= 10) {
+    lbTickCounter = 0;
+    cachedLeaderboard = Object.values(players)
+      .filter(s => s.alive)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10)
+      .map(s => ({ name: s.name, score: s.score, scoreStr: fmtScore(s.score), isMe: s === me }));
+  }
+
+  return {
+    type: 'world',
+    players: nearPlayers,
+    foods: nearFoods,
+    leaderboard: cachedLeaderboard,
+    myScore: me.score,
+    myScoreStr: fmtScore(me.score)
+  };
 }
 
 function gameTick() {
@@ -243,12 +300,12 @@ function gameTick() {
     p._boostTick = (p._boostTick || 0) + 1;
     if (p.boosting && p.length > MIN_LEN && p._boostTick >= 20) {
       p._boostTick = 0;
-      p.length = Math.max(MIN_LEN, p.length-1);
-      p.score  = Math.max(MIN_LEN, p.score-1);
-      const tail = p.segs[p.segs.length-1];
+      p.length = Math.max(MIN_LEN, p.length - 1);
+      p.score  = Math.max(MIN_LEN, p.score - 1);
+      const tail = p.segs[p.segs.length - 1];
       foods.push({
-        x: tail.x + (Math.random()-.5)*10,
-        y: tail.y + (Math.random()-.5)*10,
+        x: Math.round(tail.x + (Math.random() - .5) * 10),
+        y: Math.round(tail.y + (Math.random() - .5) * 10),
         r: 5,
         color: p.skinColor || '#f9ca24',
         size: 'small',
@@ -268,12 +325,15 @@ function gameTick() {
       if (!p.deathSent) {
         p.deathSent = true;
         submitScore(p.name, p.score, p.skinId);
-        ws.send(JSON.stringify({type:'dead', score:p.score, globalTop: getTop(10)}));
+        ws.send(JSON.stringify({ type: 'dead', score: p.score, globalTop: getTop(10) }));
       }
       continue;
     }
     const snap = buildSnapshot(id);
-    if (snap) { snap.playerCount=playerCount; try { ws.send(JSON.stringify(snap)); } catch(e){} }
+    if (snap) {
+      snap.playerCount = playerCount;
+      try { ws.send(JSON.stringify(snap)); } catch (e) {}
+    }
   }
 }
 
@@ -282,38 +342,38 @@ wss.on('connection', (ws) => {
   console.log(`[+] ${id} подключился`);
 
   ws.on('message', (raw) => {
-    let msg; try { msg=JSON.parse(raw); } catch { return; }
+    let msg; try { msg = JSON.parse(raw); } catch { return; }
 
     if (msg.type === 'join') {
       const sx = 300 + Math.random() * (WORLD - 600);
       const sy = 300 + Math.random() * (WORLD - 600);
-      const p = mkSnake(sx, sy, msg.name||'Player', msg.skinId||0);
-      p.ws=ws; p.deathSent=false; players[id]=p;
+      const p = mkSnake(sx, sy, msg.name || 'Player', msg.skinId || 0);
+      p.ws = ws; p.deathSent = false; players[id] = p;
       p.skinColor = msg.skinColor || '#f9ca24';
-      const cnt = Object.values(players).filter(p=>p.alive).length;
-      ws.send(JSON.stringify({type:'joined',id,spawnX:sx,spawnY:sy,worldSize:WORLD,playerCount:cnt,globalTop:getTop(10)}));
+      const cnt = Object.values(players).filter(p => p.alive).length;
+      ws.send(JSON.stringify({ type: 'joined', id, spawnX: sx, spawnY: sy, worldSize: WORLD, playerCount: cnt, globalTop: getTop(10) }));
       console.log(`[join] ${msg.name} id=${id}`);
       adjustTick();
     }
 
     if (msg.type === 'get_top') {
-      ws.send(JSON.stringify({type:'global_top', top: getTop(50)}));
+      ws.send(JSON.stringify({ type: 'global_top', top: getTop(50) }));
     }
 
     if (msg.type === 'input') {
-      const p = players[id]; if (!p||!p.alive) return;
-      p.tAngle=msg.angle;
-      p.boosting=msg.boost && p.length>MIN_LEN;
+      const p = players[id]; if (!p || !p.alive) return;
+      p.tAngle = msg.angle;
+      p.boosting = msg.boost && p.length > MIN_LEN;
     }
 
     if (msg.type === 'respawn') {
       const old = players[id];
       const sx = 300 + Math.random() * (WORLD - 600);
       const sy = 300 + Math.random() * (WORLD - 600);
-      const p = mkSnake(sx, sy, old?old.name:'Player', old?old.skinId:0);
-      p.ws=ws; p.deathSent=false; players[id]=p;
+      const p = mkSnake(sx, sy, old ? old.name : 'Player', old ? old.skinId : 0);
+      p.ws = ws; p.deathSent = false; players[id] = p;
       p.skinColor = old ? (old.skinColor || '#f9ca24') : '#f9ca24';
-      ws.send(JSON.stringify({type:'joined',id,spawnX:sx,spawnY:sy,worldSize:WORLD}));
+      ws.send(JSON.stringify({ type: 'joined', id, spawnX: sx, spawnY: sy, worldSize: WORLD }));
       adjustTick();
     }
   });
