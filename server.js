@@ -232,32 +232,28 @@ function buildSnapshot(forId) {
 }
 
 function gameTick() {
-  // Если нет живых игроков — ничего не делаем (тик идёт редко)
   const alive = Object.values(players).filter(p => p.alive);
   if (alive.length === 0) return;
 
   for (const id in players) {
     const p = players[id];
     if (!p.alive) continue;
-    for (const id in players) {
-  const p = players[id];
-  if (!p.alive) continue;
-  updateSnake(p);
-  eatFood(p);
-  if (p.boosting && p.length > MIN_LEN && Math.random() < 0.05) {
-    p.length = Math.max(MIN_LEN, p.length-1);
-    p.score  = Math.max(MIN_LEN, p.score-1);
-    const tail = p.segs[p.segs.length-1];
-    foods.push({
-      x: tail.x + (Math.random()-.5)*10,
-      y: tail.y + (Math.random()-.5)*10,
-      r: 5,
-      color: '#f9ca24',
-      size: 'small',
-      drop: true
-    });
+    updateSnake(p);
+    eatFood(p);
+    if (p.boosting && p.length > MIN_LEN && Math.random() < 0.05) {
+      p.length = Math.max(MIN_LEN, p.length-1);
+      p.score  = Math.max(MIN_LEN, p.score-1);
+      const tail = p.segs[p.segs.length-1];
+      foods.push({
+        x: tail.x + (Math.random()-.5)*10,
+        y: tail.y + (Math.random()-.5)*10,
+        r: 5,
+        color: '#f9ca24',
+        size: 'small',
+        drop: true
+      });
+    }
   }
-}
   checkCollisions();
 
   const playerCount = alive.length;
@@ -276,7 +272,6 @@ function gameTick() {
     if (snap) { snap.playerCount=playerCount; try { ws.send(JSON.stringify(snap)); } catch(e){} }
   }
 }
-
 wss.on('connection', (ws) => {
   const id = String(nextId++);
   console.log(`[+] ${id} подключился`);
