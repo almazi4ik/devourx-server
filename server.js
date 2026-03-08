@@ -4,7 +4,7 @@ const http = require('http');
 const PORT = process.env.PORT || 3000;
 const WORLD = 4000;
 const TICK = 33;
-const TICK_IDLE = 5000; // тик когда нет игроков (1 раз в 5 сек вместо 30/сек)
+const TICK_IDLE = 5000;
 const MIN_LEN = 10;
 const MAX_BODY = 1350;
 const MAX_BODY_SLOW = 750;
@@ -50,7 +50,7 @@ function getAlivePlayers() {
 }
 
 function startTick(rate) {
-  if (currentTickRate === rate) return; // уже на нужной скорости
+  if (currentTickRate === rate) return;
   if (tickInterval) clearInterval(tickInterval);
   currentTickRate = rate;
   tickInterval = setInterval(gameTick, rate);
@@ -96,7 +96,7 @@ function mkSnake(x, y, name, skinId) {
   return {
     x, y, name: name||'Player', skinId: skinId||0, angle, tAngle: angle,
     speed: 2.8, boosting: false, alive: true, length: MIN_LEN, score: MIN_LEN,
-    segs, turnSpeed: 0.18
+    segs, turnSpeed: 0.18, skinColor: '#f9ca24'
   };
 }
 
@@ -240,7 +240,9 @@ function gameTick() {
     if (!p.alive) continue;
     updateSnake(p);
     eatFood(p);
-    if (p.boosting && p.length > MIN_LEN && Math.random() < 0.05) {
+    p._boostTick = (p._boostTick || 0) + 1;
+    if (p.boosting && p.length > MIN_LEN && p._boostTick >= 20) {
+      p._boostTick = 0;
       p.length = Math.max(MIN_LEN, p.length-1);
       p.score  = Math.max(MIN_LEN, p.score-1);
       const tail = p.segs[p.segs.length-1];
@@ -248,10 +250,12 @@ function gameTick() {
         x: tail.x + (Math.random()-.5)*10,
         y: tail.y + (Math.random()-.5)*10,
         r: 5,
-        color: '#f9ca24',
+        color: p.skinColor || '#f9ca24',
         size: 'small',
         drop: true
       });
+    } else if (!p.boosting) {
+      p._boostTick = 0;
     }
   }
   checkCollisions();
@@ -272,6 +276,7 @@ function gameTick() {
     if (snap) { snap.playerCount=playerCount; try { ws.send(JSON.stringify(snap)); } catch(e){} }
   }
 }
+
 wss.on('connection', (ws) => {
   const id = String(nextId++);
   console.log(`[+] ${id} подключился`);
@@ -284,10 +289,11 @@ wss.on('connection', (ws) => {
       const sy = 300 + Math.random() * (WORLD - 600);
       const p = mkSnake(sx, sy, msg.name||'Player', msg.skinId||0);
       p.ws=ws; p.deathSent=false; players[id]=p;
+      p.skinColor = msg.skinColor || '#f9ca24';
       const cnt = Object.values(players).filter(p=>p.alive).length;
       ws.send(JSON.stringify({type:'joined',id,spawnX:sx,spawnY:sy,worldSize:WORLD,playerCount:cnt,globalTop:getTop(10)}));
       console.log(`[join] ${msg.name} id=${id}`);
-      adjustTick(); // ускоряем тик
+      adjustTick();
     }
 
     if (msg.type === 'get_top') {
@@ -306,23 +312,24 @@ wss.on('connection', (ws) => {
       const sy = 300 + Math.random() * (WORLD - 600);
       const p = mkSnake(sx, sy, old?old.name:'Player', old?old.skinId:0);
       p.ws=ws; p.deathSent=false; players[id]=p;
+      p.skinColor = old ? (old.skinColor || '#f9ca24') : '#f9ca24';
       ws.send(JSON.stringify({type:'joined',id,spawnX:sx,spawnY:sy,worldSize:WORLD}));
-      adjustTick(); // ускоряем тик
+      adjustTick();
     }
   });
 
   ws.on('close', () => {
     console.log(`[-] ${id} отключился`);
     if (players[id]) { killSnake(players[id]); delete players[id]; }
-    adjustTick(); // замедляем тик если никого нет
+    adjustTick();
   });
 
   ws.on('error', () => {
     if (players[id]) { killSnake(players[id]); delete players[id]; }
-    adjustTick(); // замедляем тик если никого нет
+    adjustTick();
   });
 });
 
 initFoods();
-startTick(TICK_IDLE); // стартуем в режиме ожидания
+startTick(TICK_IDLE);
 server.listen(PORT, () => console.log(`DevourX запущен на порту ${PORT}`));
