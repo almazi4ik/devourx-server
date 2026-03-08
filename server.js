@@ -239,13 +239,25 @@ function gameTick() {
   for (const id in players) {
     const p = players[id];
     if (!p.alive) continue;
-    updateSnake(p);
-    eatFood(p);
-    if (p.boosting && p.length > MIN_LEN && Math.random() < 0.05) {
-      p.length = Math.max(MIN_LEN, p.length-1);
-      p.score  = Math.max(MIN_LEN, p.score-1);
-    }
+    for (const id in players) {
+  const p = players[id];
+  if (!p.alive) continue;
+  updateSnake(p);
+  eatFood(p);
+  if (p.boosting && p.length > MIN_LEN && Math.random() < 0.05) {
+    p.length = Math.max(MIN_LEN, p.length-1);
+    p.score  = Math.max(MIN_LEN, p.score-1);
+    const tail = p.segs[p.segs.length-1];
+    foods.push({
+      x: tail.x + (Math.random()-.5)*10,
+      y: tail.y + (Math.random()-.5)*10,
+      r: 5,
+      color: '#f9ca24',
+      size: 'small',
+      drop: true
+    });
   }
+}
   checkCollisions();
 
   const playerCount = alive.length;
