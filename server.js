@@ -258,6 +258,7 @@ function gameTick() {
     });
   }
 }
+    
   checkCollisions();
 
   const playerCount = alive.length;
