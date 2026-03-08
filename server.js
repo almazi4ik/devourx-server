@@ -102,18 +102,37 @@ function mkSnake(x, y, name, skinId) {
 
 function getR(score) { return 6 + (Math.min(score,1000)/1000)*22; }
 
+function getTurnSpeed(score) {
+  const t = Math.min(score, 1000) / 1000;
+  return 0.18 - t * 0.125;
+}
+
 function updateSnake(sn) {
   if (!sn.alive) return;
   let da = sn.tAngle - sn.angle;
   while (da > Math.PI) da -= Math.PI*2;
   while (da < -Math.PI) da += Math.PI*2;
-  sn.angle += da * sn.turnSpeed;
+  sn.angle += da * getTurnSpeed(sn.score);
   const spd = sn.boosting ? sn.speed*1.85 : sn.speed;
   const hx = sn.segs[0].x + Math.cos(sn.angle)*spd;
   const hy = sn.segs[0].y + Math.sin(sn.angle)*spd;
   if (hx <= 10 || hx >= WORLD-10 || hy <= 10 || hy >= WORLD-10) { killSnake(sn); return; }
   sn.segs.unshift({ x: hx, y: hy });
   while (sn.segs.length > sn.length) sn.segs.pop();
+
+  const segDist = 8;
+  for (let i = 1; i < sn.segs.length; i++) {
+    const prev = sn.segs[i-1];
+    const curr = sn.segs[i];
+    const dx = prev.x - curr.x;
+    const dy = prev.y - curr.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist > segDist) {
+      const ratio = (dist - segDist) / dist;
+      curr.x += dx * ratio;
+      curr.y += dy * ratio;
+    }
+  }
 }
 
 function eatFood(sn) {
