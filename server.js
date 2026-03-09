@@ -13,7 +13,7 @@ const MAX_FOOD = 600;
 // Viewport size for nearby filtering
 const VIEW_X = 1600;
 const VIEW_Y = 1000;
-const MAX_SEGS_SEND = 250; // было 750
+const MAX_SEGS_SEND = 750;
 
 // Лидерборд обновляем раз в 10 тиков
 let lbTickCounter = 0;
