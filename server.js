@@ -1,5 +1,6 @@
 const WebSocket = require('ws');
 const http = require('http');
+const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
 const WORLD = 4000;
@@ -10,23 +11,30 @@ const MAX_BODY = 1350;
 const MAX_BODY_SLOW = 750;
 const MAX_FOOD = 600;
 
-// Viewport size for nearby filtering
 const VIEW_X = 1600;
 const VIEW_Y = 1000;
 const MAX_SEGS_SEND = 750;
 
-// Лидерборд обновляем раз в 10 тиков
 let lbTickCounter = 0;
 let cachedLeaderboard = [];
 
-// ═══ ФОРМАТИРОВАНИЕ ЧИСЛА ═══
+// ═══ АККАУНТЫ ═══
+const accounts = {}; // email -> { email, passHash, pid, coins, xp, createdAt }
+const sessions = {}; // token -> email
+
+function hashPass(pass) {
+  return crypto.createHash('sha256').update(pass + 'dvx_salt_2025').digest('hex');
+}
+function mkToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
 function fmtScore(n) {
   if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
   if (n >= 1000)    return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
   return String(n);
 }
 
-// ═══ ГЛОБАЛЬНАЯ ТАБЛИЦА РЕКОРДОВ ═══
 let globalTop = [];
 const TOP_SIZE = 100;
 
@@ -48,11 +56,104 @@ function getTop(n = 10) {
 }
 
 const server = http.createServer((req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204); res.end(); return;
+  }
+
+  // ═══ РЕГИСТРАЦИЯ ═══
+  if (req.url === '/auth/register' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', () => {
+      try {
+        const { email, password } = JSON.parse(body);
+        if (!email || !password) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Введи email и пароль' }));
+        }
+        const key = email.toLowerCase().trim();
+        if (accounts[key]) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Этот email уже зарегистрирован' }));
+        }
+        const pid = 'p_' + crypto.randomBytes(8).toString('hex');
+        accounts[key] = {
+          email: key,
+          passHash: hashPass(password),
+          pid,
+          createdAt: Date.now()
+        };
+        const token = mkToken();
+        sessions[token] = key;
+        console.log(`[register] ${key}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, token, email: key, pid, newAccount: true }));
+      } catch(e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Ошибка сервера' }));
+      }
+    });
+    return;
+  }
+
+  // ═══ ВХОД ═══
+  if (req.url === '/auth/login' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', () => {
+      try {
+        const { email, password } = JSON.parse(body);
+        const key = email.toLowerCase().trim();
+        const acc = accounts[key];
+        if (!acc || acc.passHash !== hashPass(password)) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Неверный email или пароль' }));
+        }
+        const token = mkToken();
+        sessions[token] = key;
+        console.log(`[login] ${key}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, token, email: key, pid: acc.pid }));
+      } catch(e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Ошибка сервера' }));
+      }
+    });
+    return;
+  }
+
+  // ═══ ПРОВЕРКА ТОКЕНА ═══
+  if (req.url === '/auth/check' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', () => {
+      try {
+        const { token } = JSON.parse(body);
+        const email = sessions[token];
+        if (!email || !accounts[email]) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Сессия истекла' }));
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, email, pid: accounts[email].pid }));
+      } catch(e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Ошибка сервера' }));
+      }
+    });
+    return;
+  }
+
   if (req.url === '/top') {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(getTop(50)));
     return;
   }
+
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('DevourX Server OK');
 });
@@ -63,7 +164,6 @@ let foods = [];
 let players = {};
 let nextId = 1;
 
-// ═══ ДИНАМИЧЕСКИЙ ТИК ═══
 let tickInterval = null;
 let currentTickRate = null;
 
@@ -77,19 +177,16 @@ function startTick(rate) {
   currentTickRate = rate;
   tickInterval = setInterval(gameTick, rate);
   if (rate === TICK_IDLE) {
-    console.log('😴 Нет игроков — замедляю тик до 5с (экономия CPU)');
+    console.log('😴 Нет игроков — замедляю тик до 5с');
   } else {
-    console.log('⚡ Игрок зашёл — полная скорость (33мс тик)');
+    console.log('⚡ Игрок зашёл — полная скорость');
   }
 }
 
 function adjustTick() {
   const alive = getAlivePlayers();
-  if (alive === 0) {
-    startTick(TICK_IDLE);
-  } else {
-    startTick(TICK);
-  }
+  if (alive === 0) startTick(TICK_IDLE);
+  else startTick(TICK);
 }
 
 function mkFood() {
@@ -207,8 +304,7 @@ function killSnake(sn) {
       y: Math.round(Math.max(50, Math.min(WORLD - 50, s.y + (Math.random() - 0.5) * 20))),
       r: 9 + Math.random() * 3,
       color: `hsl(${Math.floor(Math.random() * 360)},90%,65%)`,
-      size: 'big',
-      drop: true
+      size: 'big', drop: true
     });
   }
   if (foods.length > MAX_FOOD + 200) foods.splice(0, foods.length - (MAX_FOOD + 200));
@@ -240,34 +336,26 @@ function buildSnapshot(forId) {
   if (!me || !me.segs.length) return null;
   const cx = me.segs[0].x, cy = me.segs[0].y;
 
-  // ═══ Только ближние игроки ═══
   const nearPlayers = Object.entries(players)
     .filter(([, p]) => p.alive)
     .filter(([id, p]) => {
-      if (id === forId) return true; // всегда включаем себя
+      if (id === forId) return true;
       const ph = p.segs[0];
       return Math.abs(ph.x - cx) < VIEW_X && Math.abs(ph.y - cy) < VIEW_Y;
     })
     .map(([id, p]) => ({
-      id,
-      name: p.name,
-      skinId: p.skinId,
-      score: p.score,
+      id, name: p.name, skinId: p.skinId, score: p.score,
       scoreStr: fmtScore(p.score),
-      // ═══ Урезаем сегменты до MAX_SEGS_SEND ═══
       segs: p.segs.slice(0, MAX_SEGS_SEND),
-      boosting: p.boosting,
-      isMe: id === forId
+      boosting: p.boosting, isMe: id === forId
     }));
 
-  // ═══ Только ближняя еда ═══
   const nearFoods = foods.filter(f => {
     if (f.drop) return true;
     const dx = Math.abs(f.x - cx), dy = Math.abs(f.y - cy);
     return dx < VIEW_X && dy < VIEW_Y;
   });
 
-  // ═══ Лидерборд раз в 10 тиков ═══
   lbTickCounter++;
   if (lbTickCounter >= 10) {
     lbTickCounter = 0;
@@ -306,10 +394,7 @@ function gameTick() {
       foods.push({
         x: Math.round(tail.x + (Math.random() - .5) * 10),
         y: Math.round(tail.y + (Math.random() - .5) * 10),
-        r: 5,
-        color: p.skinColor || '#f9ca24',
-        size: 'small',
-        drop: true
+        r: 5, color: p.skinColor || '#f9ca24', size: 'small', drop: true
       });
     } else if (!p.boosting) {
       p._boostTick = 0;
