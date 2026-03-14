@@ -22,6 +22,11 @@ let cachedLeaderboard = [];
 const accounts = {}; // email -> { email, passHash, pid, coins, xp, createdAt }
 const sessions = {}; // token -> email
 
+// ═══ ДРУЗЬЯ И КОМАНДЫ ═══
+const friendships = {}; // pid -> Set(friendPid)
+const teams = {};       // teamId -> [pid1, pid2]
+const pidToWsId = {};   // pid -> wsId (чтобы найти игрока по pid)
+
 function hashPass(pass) {
   return crypto.createHash('sha256').update(pass + 'dvx_salt_2025').digest('hex');
 }
@@ -217,7 +222,8 @@ function mkSnake(x, y, name, skinId) {
   return {
     x, y, name: name || 'Player', skinId: skinId || 0, angle, tAngle: angle,
     speed: 2.8, boosting: false, alive: true, length: MIN_LEN, score: MIN_LEN,
-    segs, turnSpeed: 0.18, skinColor: '#f9ca24'
+    segs, turnSpeed: 0.18, skinColor: '#f9ca24',
+    pid: null, teamId: null
   };
 }
 
@@ -292,6 +298,13 @@ function killSnake(sn) {
   if (!sn.alive) return;
   sn.alive = false;
 
+  // ═══ При смерти — убрать из команды ═══
+  if (sn.teamId && teams[sn.teamId]) {
+    teams[sn.teamId] = teams[sn.teamId].filter(pid => pid !== sn.pid);
+    if (teams[sn.teamId].length === 0) delete teams[sn.teamId];
+  }
+  sn.teamId = null;
+
   const dropCount = Math.max(1, Math.min(200, Math.floor(sn.score / 2)));
   const totalSegs = sn.segs.length;
   const step = Math.max(1, Math.floor(totalSegs / dropCount));
@@ -317,6 +330,8 @@ function checkCollisions() {
     const h = sn.segs[0], r = getR(sn.score);
     for (const other of alive) {
       if (!other.alive || other === sn) continue;
+      // ═══ Пропустить если одна команда ═══
+      if (sn.teamId && sn.teamId === other.teamId) continue;
       for (let i = 2; i < other.segs.length; i++) {
         const s = other.segs[i], dx = h.x - s.x, dy = h.y - s.y;
         if (dx * dx + dy * dy < (r + getR(other.score) - 2) ** 2) {
@@ -329,6 +344,15 @@ function checkCollisions() {
       if (!sn.alive) break;
     }
   }
+}
+
+// ═══ ЦВЕТА КОМАНД ═══
+const TEAM_COLORS = ['#f9ca24', '#ff6b9d', '#00e5cc', '#a29bfe', '#ff9f43', '#39ff14'];
+let teamColorIdx = 0;
+function nextTeamColor() {
+  const c = TEAM_COLORS[teamColorIdx % TEAM_COLORS.length];
+  teamColorIdx++;
+  return c;
 }
 
 function buildSnapshot(forId) {
@@ -347,7 +371,9 @@ function buildSnapshot(forId) {
       id, name: p.name, skinId: p.skinId, score: p.score,
       scoreStr: fmtScore(p.score),
       segs: p.segs.slice(0, MAX_SEGS_SEND),
-      boosting: p.boosting, isMe: id === forId
+      boosting: p.boosting, isMe: id === forId,
+      teamId: p.teamId || null,           // ═══ передаём teamId
+      teamColor: p.teamColor || null       // ═══ передаём цвет команды
     }));
 
   const nearFoods = foods.filter(f => {
@@ -402,6 +428,12 @@ function gameTick() {
   }
   checkCollisions();
 
+  // ═══ Раз в секунду отправлять друзьям статус онлайн ═══
+  if (Date.now() - lastFriendPing > 1000) {
+    lastFriendPing = Date.now();
+    broadcastFriendStatuses();
+  }
+
   const playerCount = alive.length;
   for (const id in players) {
     const p = players[id], ws = p.ws;
@@ -422,6 +454,33 @@ function gameTick() {
   }
 }
 
+// ═══ Периодически рассылать статус друзей ═══
+let lastFriendPing = 0;
+function broadcastFriendStatuses() {
+  for (const id in players) {
+    const p = players[id];
+    if (!p.ws || p.ws.readyState !== WebSocket.OPEN) continue;
+    if (!p.pid) continue;
+    const myFriends = friendships[p.pid];
+    if (!myFriends || myFriends.size === 0) continue;
+
+    const statuses = [];
+    for (const friendPid of myFriends) {
+      const friendWsId = pidToWsId[friendPid];
+      const friendPlayer = friendWsId ? players[friendWsId] : null;
+      statuses.push({
+        pid: friendPid,
+        online: !!(friendPlayer && friendPlayer.alive),
+        name: friendPlayer ? friendPlayer.name : null,
+        teamId: friendPlayer ? friendPlayer.teamId : null
+      });
+    }
+    try {
+      p.ws.send(JSON.stringify({ type: 'friend_statuses', statuses }));
+    } catch(e) {}
+  }
+}
+
 wss.on('connection', (ws) => {
   const id = String(nextId++);
   console.log(`[+] ${id} подключился`);
@@ -435,6 +494,11 @@ wss.on('connection', (ws) => {
       const p = mkSnake(sx, sy, msg.name || 'Player', msg.skinId || 0);
       p.ws = ws; p.deathSent = false; players[id] = p;
       p.skinColor = msg.skinColor || '#f9ca24';
+      // ═══ Сохранить pid игрока ═══
+      if (msg.pid) {
+        p.pid = msg.pid;
+        pidToWsId[msg.pid] = id;
+      }
       const cnt = Object.values(players).filter(p => p.alive).length;
       ws.send(JSON.stringify({ type: 'joined', id, spawnX: sx, spawnY: sy, worldSize: WORLD, playerCount: cnt, globalTop: getTop(10) }));
       console.log(`[join] ${msg.name} id=${id}`);
@@ -458,19 +522,113 @@ wss.on('connection', (ws) => {
       const p = mkSnake(sx, sy, old ? old.name : 'Player', old ? old.skinId : 0);
       p.ws = ws; p.deathSent = false; players[id] = p;
       p.skinColor = old ? (old.skinColor || '#f9ca24') : '#f9ca24';
+      if (old && old.pid) {
+        p.pid = old.pid;
+        pidToWsId[old.pid] = id;
+      }
       ws.send(JSON.stringify({ type: 'joined', id, spawnX: sx, spawnY: sy, worldSize: WORLD }));
       adjustTick();
+    }
+
+    // ═══ ДОБАВИТЬ ДРУГА ═══
+    if (msg.type === 'add_friend') {
+      const myPid = msg.myPid;
+      const friendPid = msg.friendPid;
+      if (!myPid || !friendPid || myPid === friendPid) return;
+      if (!friendships[myPid]) friendships[myPid] = new Set();
+      friendships[myPid].add(friendPid);
+      // Найти друга онлайн
+      const friendWsId = pidToWsId[friendPid];
+      const friendPlayer = friendWsId ? players[friendWsId] : null;
+      ws.send(JSON.stringify({
+        type: 'friend_added',
+        pid: friendPid,
+        online: !!(friendPlayer && friendPlayer.alive),
+        name: friendPlayer ? friendPlayer.name : '???'
+      }));
+      console.log(`[friends] ${myPid} добавил ${friendPid}`);
+    }
+
+    // ═══ УДАЛИТЬ ДРУГА ═══
+    if (msg.type === 'remove_friend') {
+      const myPid = msg.myPid;
+      const friendPid = msg.friendPid;
+      if (friendships[myPid]) friendships[myPid].delete(friendPid);
+      ws.send(JSON.stringify({ type: 'friend_removed', pid: friendPid }));
+    }
+
+    // ═══ ПРИСОЕДИНИТЬСЯ К ДРУГУ В КОМАНДУ ═══
+    if (msg.type === 'join_team') {
+      const myPid = msg.myPid;
+      const friendPid = msg.friendPid;
+      if (!myPid || !friendPid) return;
+      const me = players[id];
+      if (!me || !me.alive) return;
+
+      const friendWsId = pidToWsId[friendPid];
+      const friendPlayer = friendWsId ? players[friendWsId] : null;
+      if (!friendPlayer || !friendPlayer.alive) {
+        ws.send(JSON.stringify({ type: 'team_error', msg: 'Друг не в игре' }));
+        return;
+      }
+
+      // Если у друга уже есть команда — присоединиться к ней
+      let teamId, teamColor;
+      if (friendPlayer.teamId && teams[friendPlayer.teamId]) {
+        teamId = friendPlayer.teamId;
+        teamColor = friendPlayer.teamColor;
+        teams[teamId].push(myPid);
+      } else {
+        // Создать новую команду
+        teamId = 'team_' + Date.now();
+        teamColor = nextTeamColor();
+        teams[teamId] = [friendPid, myPid];
+        friendPlayer.teamId = teamId;
+        friendPlayer.teamColor = teamColor;
+        // Уведомить друга
+        if (friendPlayer.ws && friendPlayer.ws.readyState === 1) {
+          friendPlayer.ws.send(JSON.stringify({ type: 'team_joined', teamId, teamColor, partnerName: me.name }));
+        }
+      }
+      me.teamId = teamId;
+      me.teamColor = teamColor;
+      ws.send(JSON.stringify({ type: 'team_joined', teamId, teamColor, partnerName: friendPlayer.name }));
+      console.log(`[team] ${myPid} + ${friendPid} = ${teamId}`);
+    }
+
+    // ═══ ВЫЙТИ ИЗ КОМАНДЫ ═══
+    if (msg.type === 'leave_team') {
+      const me = players[id];
+      if (!me || !me.teamId) return;
+      const tid = me.teamId;
+      if (teams[tid]) {
+        teams[tid] = teams[tid].filter(p => p !== me.pid);
+        if (teams[tid].length === 0) delete teams[tid];
+      }
+      me.teamId = null;
+      me.teamColor = null;
+      ws.send(JSON.stringify({ type: 'team_left' }));
     }
   });
 
   ws.on('close', () => {
     console.log(`[-] ${id} отключился`);
-    if (players[id]) { killSnake(players[id]); delete players[id]; }
+    if (players[id]) {
+      const p = players[id];
+      if (p.pid && pidToWsId[p.pid] === id) delete pidToWsId[p.pid];
+      killSnake(p);
+      delete players[id];
+    }
     adjustTick();
   });
 
   ws.on('error', () => {
-    if (players[id]) { killSnake(players[id]); delete players[id]; }
+    if (players[id]) {
+      const p = players[id];
+      if (p.pid && pidToWsId[p.pid] === id) delete pidToWsId[p.pid];
+      killSnake(p);
+      delete players[id];
+    }
     adjustTick();
   });
 });
