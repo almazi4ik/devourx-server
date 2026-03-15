@@ -7,12 +7,12 @@ const WORLD = 4000;
 const TICK = 33;
 const TICK_IDLE = 5000;
 const MIN_LEN = 10;
-const MAX_BODY = 1350;
-const MAX_BODY_SLOW = 750;
+const MAX_BODY = 2000;
+const MAX_BODY_SLOW = 1000;
 const MAX_FOOD = 600;
 const VIEW_X = 1600;
 const VIEW_Y = 1000;
-const MAX_SEGS_SEND = 750;
+const MAX_SEGS_SEND = 1000;
 
 let lbTickCounter = 0;
 let cachedLeaderboard = [];
