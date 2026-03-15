@@ -17,6 +17,86 @@ const MAX_SEGS_SEND = 750;
 let lbTickCounter = 0;
 let cachedLeaderboard = [];
 
+// ═══ БОТЫ ═══
+const BOTS = [
+  { name: 'I crazy![NBAM]', skinId: 0, skinColor: '#ff6b6b' },
+  { name: 'Player',          skinId: 2, skinColor: '#00e5cc' },
+];
+const BOT_RESPAWN_DELAY = 4000; // мс до респауна после смерти
+const botMeta = {}; // botId -> { respawnAt }
+
+function spawnBot(botCfg, botId) {
+  const sx = 300 + Math.random() * (WORLD - 600);
+  const sy = 300 + Math.random() * (WORLD - 600);
+  const p = mkSnake(sx, sy, botCfg.name, botCfg.skinId);
+  p.skinColor  = botCfg.skinColor;
+  p.isBot      = true;
+  p.botCfg     = botCfg;
+  p.botId      = botId;
+  p.ws         = null; // нет WebSocket
+  p.deathSent  = true; // не слать 'dead' пакет
+  p._botDir    = Math.random() * Math.PI * 2; // текущая цель-угол
+  p._botDirTick = 0;
+  players[botId] = p;
+  botMeta[botId] = { respawnAt: 0 };
+  adjustTick();
+  console.log(`[BOT] Spawned ${botCfg.name} as ${botId}`);
+}
+
+function initBots() {
+  BOTS.forEach((cfg, i) => {
+    const botId = 'bot_' + i;
+    spawnBot(cfg, botId);
+  });
+}
+
+function tickBots() {
+  BOTS.forEach((cfg, i) => {
+    const botId = 'bot_' + i;
+    const p = players[botId];
+    const meta = botMeta[botId];
+
+    // Респаун мёртвого бота
+    if (!p || !p.alive) {
+      if (meta && Date.now() >= meta.respawnAt) {
+        spawnBot(cfg, botId);
+      }
+      return;
+    }
+
+    // ИИ: смена направления каждые ~60 тиков + уклонение от стен
+    p._botDirTick++;
+    const head = p.segs[0];
+
+    // Уклонение от стен
+    const margin = 200;
+    if (head.x < margin)      p._botDir = 0;
+    else if (head.x > WORLD - margin) p._botDir = Math.PI;
+    else if (head.y < margin)      p._botDir = Math.PI / 2;
+    else if (head.y > WORLD - margin) p._botDir = -Math.PI / 2;
+    else if (p._botDirTick >= 40 + Math.floor(Math.random() * 60)) {
+      // Ищем ближайшую еду в радиусе 300
+      let bestFood = null, bestDist = 300;
+      for (const f of foods) {
+        const dx = f.x - head.x, dy = f.y - head.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < bestDist) { bestDist = d; bestFood = f; }
+      }
+      if (bestFood) {
+        p._botDir = Math.atan2(bestFood.y - head.y, bestFood.x - head.x);
+      } else {
+        p._botDir += (Math.random() - 0.5) * 1.2;
+      }
+      p._botDirTick = 0;
+    }
+
+    p.tAngle = p._botDir;
+    p.boosting = false;
+  });
+}
+
+// Смерть бота обрабатывается внутри killSnake
+
 const accounts = {};
 const sessions = {};
 const friendships = {};
@@ -198,6 +278,11 @@ function eatFood(sn) {
 
 function killSnake(sn) {
   if(!sn.alive) return; sn.alive=false;
+  // Бот — запланировать респаун
+  if (sn.isBot && sn.botId !== undefined && botMeta[sn.botId]) {
+    botMeta[sn.botId].respawnAt = Date.now() + BOT_RESPAWN_DELAY;
+    submitScore(sn.name, sn.score, sn.skinId);
+  }
   if(sn.teamId&&teams[sn.teamId]){teams[sn.teamId]=teams[sn.teamId].filter(pid=>pid!==sn.pid);if(teams[sn.teamId].length===0)delete teams[sn.teamId];}
   sn.teamId=null;
   const dropCount=Math.max(1,Math.min(200,Math.floor(sn.score/2))),totalSegs=sn.segs.length,step=Math.max(1,Math.floor(totalSegs/dropCount));
@@ -235,6 +320,7 @@ function buildSnapshot(forId) {
 }
 
 function gameTick() {
+  tickBots();
   const alive=Object.values(players).filter(p=>p.alive); if(alive.length===0) return;
   brTickZone();
   for(const id in players){
@@ -248,7 +334,9 @@ function gameTick() {
   if(Date.now()-lastFriendPing>1000){lastFriendPing=Date.now();broadcastFriendStatuses();}
   const playerCount=alive.length;
   for(const id in players){
-    const p=players[id],ws=p.ws; if(!ws||ws.readyState!==WebSocket.OPEN) continue;
+    const p=players[id],ws=p.ws;
+    if(p.isBot) continue; // боты — без ws
+    if(!ws||ws.readyState!==WebSocket.OPEN) continue;
     if(!p.alive){if(!p.deathSent){p.deathSent=true;submitScore(p.name,p.score,p.skinId);ws.send(JSON.stringify({type:'dead',score:p.score,globalTop:getTop(10)}));}continue;}
     const snap=buildSnapshot(id); if(snap){snap.playerCount=playerCount;try{ws.send(JSON.stringify(snap));}catch(e){}}
   }
@@ -346,5 +434,6 @@ wss.on('connection', (ws) => {
 });
 
 initFoods();
+initBots();
 startTick(TICK_IDLE);
 server.listen(PORT, () => console.log(`DevourX запущен на порту ${PORT}`));
