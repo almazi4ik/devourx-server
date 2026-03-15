@@ -7,12 +7,12 @@ const WORLD = 4000;
 const TICK = 33;
 const TICK_IDLE = 5000;
 const MIN_LEN = 10;
-const MAX_BODY = 2000;
-const MAX_BODY_SLOW = 1000;
+const MAX_BODY = 1350;
+const MAX_BODY_SLOW = 750;
 const MAX_FOOD = 600;
 const VIEW_X = 1600;
 const VIEW_Y = 1000;
-const MAX_SEGS_SEND = 1000;
+const MAX_SEGS_SEND = 750;
 
 let lbTickCounter = 0;
 let cachedLeaderboard = [];
@@ -325,7 +325,7 @@ function updateSnake(sn) {
   sn.angle+=da*getTurnSpeed(sn.score);
   const spd=sn.boosting?sn.speed*1.85:sn.speed;
   const hx=sn.segs[0].x+Math.cos(sn.angle)*spd, hy=sn.segs[0].y+Math.sin(sn.angle)*spd;
-  if(hx<=10||hx>=WORLD-10||hy<=10||hy>=WORLD-10){killSnake(sn);return;}
+  if(hx<=10||hx>=WORLD-10||hy<=10||hy>=WORLD-10){killSnake(sn,'wall');return;}
   sn.segs.unshift({x:Math.round(hx),y:Math.round(hy)});
   while(sn.segs.length>sn.length) sn.segs.pop();
   const segDist=8;
@@ -360,8 +360,9 @@ function eatFood(sn) {
   }
 }
 
-function killSnake(sn) {
+function killSnake(sn, cause) {
   if(!sn.alive) return; sn.alive=false;
+  sn._deathCause = cause || null; // 'wall' | { killerName } | null
   // Бот — запланировать респаун
   if (sn.isBot && sn.botId !== undefined && botMeta[sn.botId]) {
     botMeta[sn.botId].respawnAt = Date.now() + BOT_RESPAWN_DELAY;
@@ -382,7 +383,7 @@ function checkCollisions() {
     for(const other of alive){
       if(!other.alive||other===sn) continue;
       if(sn.teamId&&sn.teamId===other.teamId) continue;
-      for(let i=2;i<other.segs.length;i++){const s=other.segs[i],dx=h.x-s.x,dy=h.y-s.y;if(dx*dx+dy*dy<(r+getR(other.score)*0.45)**2){killSnake(sn);if(other.ws&&other.ws.readyState===1)other.ws.send(JSON.stringify({type:'kill_reward',coins:3}));break;}}
+      for(let i=2;i<other.segs.length;i++){const s=other.segs[i],dx=h.x-s.x,dy=h.y-s.y;if(dx*dx+dy*dy<(r+getR(other.score)*0.45)**2){killSnake(sn,{killerName:other.name});if(other.ws&&other.ws.readyState===1)other.ws.send(JSON.stringify({type:'kill_reward',coins:3}));break;}}
       if(!sn.alive) break;
     }
   }
@@ -421,7 +422,7 @@ function gameTick() {
     const p=players[id],ws=p.ws;
     if(p.isBot) continue; // боты — без ws
     if(!ws||ws.readyState!==WebSocket.OPEN) continue;
-    if(!p.alive){if(!p.deathSent){p.deathSent=true;submitScore(p.name,p.score,p.skinId);ws.send(JSON.stringify({type:'dead',score:p.score,globalTop:getTop(10)}));}continue;}
+    if(!p.alive){if(!p.deathSent){p.deathSent=true;submitScore(p.name,p.score,p.skinId);const cause=p._deathCause;ws.send(JSON.stringify({type:'dead',score:p.score,globalTop:getTop(10),deathCause:cause}));}continue;}
     const snap=buildSnapshot(id); if(snap){snap.playerCount=playerCount;try{ws.send(JSON.stringify(snap));}catch(e){}}
   }
 }
