@@ -220,9 +220,21 @@ function fmtScore(n) {
 
 let globalTop = [];
 const TOP_SIZE = 100;
-function submitScore(name, score, skinId) {
+function submitScore(name, score, skinId, isBot) {
   if (score < 50) return;
-  globalTop.push({ name, score, skinId, date: Date.now() });
+  if (isBot) {
+    // Бот — обновляем его запись (не дублируем)
+    const idx = globalTop.findIndex(r => r.name === name && r.isBot);
+    if (idx >= 0) {
+      if (score <= globalTop[idx].score) return; // не обновляем если меньше
+      globalTop[idx].score = score;
+      globalTop[idx].date = Date.now();
+    } else {
+      globalTop.push({ name, score, skinId, date: Date.now(), isBot: true });
+    }
+  } else {
+    globalTop.push({ name, score, skinId, date: Date.now() });
+  }
   globalTop.sort((a, b) => b.score - a.score);
   if (globalTop.length > TOP_SIZE) globalTop = globalTop.slice(0, TOP_SIZE);
 }
@@ -353,7 +365,7 @@ function killSnake(sn) {
   // Бот — запланировать респаун
   if (sn.isBot && sn.botId !== undefined && botMeta[sn.botId]) {
     botMeta[sn.botId].respawnAt = Date.now() + BOT_RESPAWN_DELAY;
-    submitScore(sn.name, sn.score, sn.skinId);
+    submitScore(sn.name, sn.score, sn.skinId, true); // бот попадает в топ
   }
   if(sn.teamId&&teams[sn.teamId]){teams[sn.teamId]=teams[sn.teamId].filter(pid=>pid!==sn.pid);if(teams[sn.teamId].length===0)delete teams[sn.teamId];}
   sn.teamId=null;
