@@ -50,6 +50,13 @@ function initBots() {
   });
 }
 
+function botAngleDiff(a, b) {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
 function tickBots() {
   BOTS.forEach((cfg, i) => {
     const botId = 'bot_' + i;
@@ -64,34 +71,99 @@ function tickBots() {
       return;
     }
 
-    // ИИ: смена направления каждые ~60 тиков + уклонение от стен
-    p._botDirTick++;
+    p._botDirTick = (p._botDirTick || 0) + 1;
     const head = p.segs[0];
+    const myR = getR(p.score);
+    const WALL = 180;
 
-    // Уклонение от стен
-    const margin = 200;
-    if (head.x < margin)      p._botDir = 0;
-    else if (head.x > WORLD - margin) p._botDir = Math.PI;
-    else if (head.y < margin)      p._botDir = Math.PI / 2;
-    else if (head.y > WORLD - margin) p._botDir = -Math.PI / 2;
-    else if (p._botDirTick >= 40 + Math.floor(Math.random() * 60)) {
-      // Ищем ближайшую еду в радиусе 300
-      let bestFood = null, bestDist = 300;
-      for (const f of foods) {
-        const dx = f.x - head.x, dy = f.y - head.y;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d < bestDist) { bestDist = d; bestFood = f; }
-      }
-      if (bestFood) {
-        p._botDir = Math.atan2(bestFood.y - head.y, bestFood.x - head.x);
-      } else {
-        p._botDir += (Math.random() - 0.5) * 1.2;
-      }
-      p._botDirTick = 0;
+    // ── Собираем всех живых врагов (включая другого бота) ──
+    const enemies = Object.values(players).filter(e =>
+      e !== p && e.alive && e.segs.length > 0
+    );
+
+    // ── Ищем ближайшую цель для атаки ──
+    let huntTarget = null, huntDist = 420;
+    for (const e of enemies) {
+      const dx = e.segs[0].x - head.x, dy = e.segs[0].y - head.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < huntDist) { huntDist = d; huntTarget = e; }
     }
 
-    p.tAngle = p._botDir;
-    p.boosting = false;
+    // ── Уклонение от чужих тел ──
+    let dangerAngle = null, dangerDist = 9999;
+    for (const e of enemies) {
+      for (let si = 1; si < Math.min(e.segs.length, 60); si++) {
+        const s = e.segs[si];
+        const dx = s.x - head.x, dy = s.y - head.y;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        const threshold = myR + getR(e.score) * 0.5 + 30;
+        if (d < threshold && d < dangerDist) {
+          dangerDist = d;
+          dangerAngle = Math.atan2(dy, dx) + Math.PI;
+        }
+      }
+    }
+
+    // ── Ближайшая еда ──
+    let bestFood = null, bestFoodDist = 250;
+    for (const f of foods) {
+      const dx = f.x - head.x, dy = f.y - head.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      const bonus = f.drop ? 80 : 0;
+      if (d - bonus < bestFoodDist) { bestFoodDist = d - bonus; bestFood = f; }
+    }
+
+    // ── Выбираем поведение ──
+    let targetAngle = p._botDir || 0;
+    let shouldBoost = false;
+
+    const nearWall = head.x < WALL || head.x > WORLD - WALL ||
+                     head.y < WALL || head.y > WORLD - WALL;
+
+    if (nearWall) {
+      targetAngle = Math.atan2(WORLD / 2 - head.y, WORLD / 2 - head.x);
+      shouldBoost = true;
+
+    } else if (dangerAngle !== null && dangerDist < myR * 2 + 25) {
+      targetAngle = dangerAngle;
+      shouldBoost = true;
+
+    } else if (huntTarget && huntDist < 350) {
+      // Упреждение — целимся чуть впереди головы врага
+      const lead = 18;
+      const ex = huntTarget.segs[0].x + Math.cos(huntTarget.angle) * lead;
+      const ey = huntTarget.segs[0].y + Math.sin(huntTarget.angle) * lead;
+      targetAngle = Math.atan2(ey - head.y, ex - head.x);
+
+      if (huntDist < 200) {
+        shouldBoost = p.score >= huntTarget.score * 0.7;
+      }
+
+      // Тактика окружения если бот крупнее
+      if (p.score > huntTarget.score * 1.4 && huntDist < 300) {
+        const offset = Math.PI * 0.35;
+        targetAngle += offset * (Math.random() > 0.5 ? 1 : -1);
+        shouldBoost = true;
+      }
+
+    } else if (bestFood) {
+      targetAngle = Math.atan2(bestFood.y - head.y, bestFood.x - head.x);
+      shouldBoost = bestFood.drop && bestFoodDist < 120;
+
+    } else {
+      if (p._botDirTick % 55 === 0) {
+        p._botDir = (p._botDir || 0) + (Math.random() - 0.5) * 1.4;
+      }
+      targetAngle = p._botDir;
+    }
+
+    // Плавный поворот как у игрока
+    const maxTurn = 0.22;
+    const diff = botAngleDiff(p.tAngle, targetAngle);
+    p.tAngle += Math.sign(diff) * Math.min(Math.abs(diff), maxTurn);
+
+    p._botDir = targetAngle;
+    p.boosting = shouldBoost && p.length > MIN_LEN + 5;
   });
 }
 
