@@ -383,7 +383,7 @@ function checkCollisions() {
     for(const other of alive){
       if(!other.alive||other===sn) continue;
       if(sn.teamId&&sn.teamId===other.teamId) continue;
-      for(let i=2;i<other.segs.length;i++){const s=other.segs[i],dx=h.x-s.x,dy=h.y-s.y;if(dx*dx+dy*dy<(r+getR(other.score)*0.45)**2){killSnake(sn,{killerName:other.name});if(other.ws&&other.ws.readyState===1)other.ws.send(JSON.stringify({type:'kill_reward',coins:3}));break;}}
+      for(let i=2;i<other.segs.length;i++){const s=other.segs[i],dx=h.x-s.x,dy=h.y-s.y;if(dx*dx+dy*dy<(r+getR(other.score)*0.3)**2){killSnake(sn,{killerName:other.name});if(other.ws&&other.ws.readyState===1)other.ws.send(JSON.stringify({type:'kill_reward',coins:3}));break;}}
       if(!sn.alive) break;
     }
   }
