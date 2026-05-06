@@ -2,7 +2,7 @@ const WebSocket = require('ws');
 const http = require('http');
 const crypto = require('crypto');
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const WORLD = 4000;
 const TICK = 33;
 const TICK_IDLE = 5000;
