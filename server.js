@@ -436,21 +436,23 @@ function buildSnapshot(forId) {
       brMode: p.brMode || false, brHP: p.brMode ? Math.round(p.brHP) : null
     }));
   
-  // ══════ ЕДА С ОГРАНИЧЕНИЕМ (НЕ БОЛЕЕ 120 ОБЪЕКТОВ) ══════
+  // ══════ ЕДА С ОГРАНИЧЕНИЕМ (НЕ БОЛЕЕ 250 ОБЪЕКТОВ) ══════
+  const MAX_VISIBLE_FOOD = 225;  // ← меняй это число (200, 250, 300)
+  
   let nearFoods = foods.filter(f => {
     if (f.drop) return true;
     const dx = Math.abs(f.x - cx), dy = Math.abs(f.y - cy);
     return dx < VIEW_X && dy < VIEW_Y;
   });
   
-  // Если еды слишком много — оставляем только ближайшие 120
-  if (nearFoods.length > 120) {
+  // Если еды больше MAX_VISIBLE_FOOD — оставляем только ближайшие
+  if (nearFoods.length > MAX_VISIBLE_FOOD) {
     nearFoods.sort((a, b) => {
       const da = Math.hypot(a.x - cx, a.y - cy);
       const db = Math.hypot(b.x - cx, b.y - cy);
       return da - db;
     });
-    nearFoods = nearFoods.slice(0, 120);
+    nearFoods = nearFoods.slice(0, MAX_VISIBLE_FOOD);
   }
   
   // Лидерборд (обновляем раз в 10 тиков)
