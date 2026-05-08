@@ -415,15 +415,76 @@ const TEAM_COLORS=['#f9ca24','#ff6b9d','#00e5cc','#a29bfe','#ff9f43','#39ff14'];
 function nextTeamColor(){const c=TEAM_COLORS[teamColorIdx%TEAM_COLORS.length];teamColorIdx++;return c;}
 
 function buildSnapshot(forId) {
-  const me=players[forId]; if(!me||!me.segs.length) return null;
-  const cx=me.segs[0].x,cy=me.segs[0].y;
-  const nearPlayers=Object.entries(players).filter(([,p])=>p.alive).filter(([id,p])=>{if(id===forId)return true;const ph=p.segs[0];return Math.abs(ph.x-cx)<VIEW_X&&Math.abs(ph.y-cy)<VIEW_Y;}).map(([id,p])=>({id,name:p.name,skinId:p.skinId,score:p.score,scoreStr:fmtScore(p.score),segs:p.segs.slice(0,MAX_SEGS_SEND),boosting:p.boosting,isMe:id===forId,teamId:p.teamId||null,teamColor:p.teamColor||null,brMode:p.brMode||false,brHP:p.brMode?Math.round(p.brHP):null}));
-  const nearFoods=foods.filter(f=>{if(f.drop)return true;const dx=Math.abs(f.x-cx),dy=Math.abs(f.y-cy);return dx<VIEW_X&&dy<VIEW_Y;});
+  const me = players[forId];
+  if (!me || !me.segs.length) return null;
+  const cx = me.segs[0].x, cy = me.segs[0].y;
+  
+  // Игроки поблизости
+  const nearPlayers = Object.entries(players)
+    .filter(([, p]) => p.alive)
+    .filter(([id, p]) => {
+      if (id === forId) return true;
+      const ph = p.segs[0];
+      return Math.abs(ph.x - cx) < VIEW_X && Math.abs(ph.y - cy) < VIEW_Y;
+    })
+    .map(([id, p]) => ({
+      id, name: p.name, skinId: p.skinId, score: p.score,
+      scoreStr: fmtScore(p.score),
+      segs: p.segs.slice(0, MAX_SEGS_SEND),
+      boosting: p.boosting, isMe: id === forId,
+      teamId: p.teamId || null, teamColor: p.teamColor || null,
+      brMode: p.brMode || false, brHP: p.brMode ? Math.round(p.brHP) : null
+    }));
+  
+  // ══════ ЕДА С ОГРАНИЧЕНИЕМ (НЕ БОЛЕЕ 120 ОБЪЕКТОВ) ══════
+  let nearFoods = foods.filter(f => {
+    if (f.drop) return true;
+    const dx = Math.abs(f.x - cx), dy = Math.abs(f.y - cy);
+    return dx < VIEW_X && dy < VIEW_Y;
+  });
+  
+  // Если еды слишком много — оставляем только ближайшие 120
+  if (nearFoods.length > 120) {
+    nearFoods.sort((a, b) => {
+      const da = Math.hypot(a.x - cx, a.y - cy);
+      const db = Math.hypot(b.x - cx, b.y - cy);
+      return da - db;
+    });
+    nearFoods = nearFoods.slice(0, 120);
+  }
+  
+  // Лидерборд (обновляем раз в 10 тиков)
   lbTickCounter++;
-  if(lbTickCounter>=10){lbTickCounter=0;cachedLeaderboard=Object.entries(players).filter(([,s])=>s.alive).sort(([,a],[,b])=>b.score-a.score).slice(0,10).map(([id,s])=>({name:s.name,score:s.score,scoreStr:fmtScore(s.score),isMe:id===forId}));}
-  const brSecsLeft = Math.max(0, Math.ceil((BR_SHRINK_INTERVAL-(Date.now()-brLastShrink))/1000));
-  const allHeads=Object.entries(players).filter(([,p])=>p.alive&&p.segs.length).map(([id,p])=>({x:p.segs[0].x,y:p.segs[0].y,isMe:id===forId}));
-  return {type:'world',players:nearPlayers,foods:nearFoods,leaderboard:cachedLeaderboard,allHeads,myScore:me.score,myScoreStr:fmtScore(me.score),brZoneSize:brActive?brZoneSize:null,brSecsLeft:brActive?brSecsLeft:null};
+  if (lbTickCounter >= 10) {
+    lbTickCounter = 0;
+    cachedLeaderboard = Object.entries(players)
+      .filter(([, s]) => s.alive)
+      .sort(([, a], [, b]) => b.score - a.score)
+      .slice(0, 10)
+      .map(([id, s]) => ({
+        name: s.name, score: s.score,
+        scoreStr: fmtScore(s.score), isMe: id === forId
+      }));
+  }
+  
+  const brSecsLeft = Math.max(0, Math.ceil((BR_SHRINK_INTERVAL - (Date.now() - brLastShrink)) / 1000));
+  const allHeads = Object.entries(players)
+    .filter(([, p]) => p.alive && p.segs.length)
+    .map(([id, p]) => ({
+      x: p.segs[0].x, y: p.segs[0].y, isMe: id === forId
+    }));
+  
+  return {
+    type: 'world',
+    players: nearPlayers,
+    foods: nearFoods,
+    leaderboard: cachedLeaderboard,
+    allHeads,
+    myScore: me.score,
+    myScoreStr: fmtScore(me.score),
+    brZoneSize: brActive ? brZoneSize : null,
+    brSecsLeft: brActive ? brSecsLeft : null
+  };
 }
 
 function gameTick() {
