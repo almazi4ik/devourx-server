@@ -307,7 +307,13 @@ function mkFood() {
   if (rnd < 0.75) { size='small'; r=3+Math.random()*2; } else if (rnd < 0.95) { size='medium'; r=5+Math.random()*2; } else { size='big'; r=8+Math.random()*2; }
   return { x:Math.round(200+Math.random()*(WORLD-400)), y:Math.round(200+Math.random()*(WORLD-400)), r:Math.round(r*10)/10, color:`hsl(${Math.floor(Math.random()*360)},90%,65%)`, size };
 }
-function initFoods() { foods=[]; for(let i=0;i<MAX_FOOD;i++) foods.push(mkFood()); }
+
+function initFoods() { 
+  foods = []; 
+  for(let i = 0; i < MAX_FOOD; i++) foods.push(mkFood()); 
+}
+// Вызови при старте сервера
+initFoods();
 
 function mkSnake(x, y, name, skinId) {
   const angle = Math.random()*Math.PI*2, segs=[];
