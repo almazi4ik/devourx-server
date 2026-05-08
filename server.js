@@ -17,30 +17,64 @@ const MAX_SEGS_SEND = 750;
 let lbTickCounter = 0;
 let cachedLeaderboard = [];
 
-// ═══ БОТЫ ═══
-const BOTS = [
-  { name: 'I crazy![NBAM]', skinId: 0, skinColor: '#ff6b6b' },
-  { name: 'Player',          skinId: 2, skinColor: '#00e5cc' },
+// ══════ НИКИ И ЦВЕТА ДЛЯ БОТОВ ══════
+const BOT_NICKNAMES = [
+  'KILLER', 'VIPER', 'COBRA', 'SHADOW', 'GHOST', 'DEMON', 'RAZOR', 'VENOM',
+  'NOOB', 'SLIMY', 'WIGGLE', 'NOODLE', 'ZIGZAG', 'SQUISHY', 'WOBBLY',
+  'RIDER', 'HUNTER', 'WARRIOR', 'NINJA', 'PHANTOM', 'STEALTH', 'BLADE',
+  'DRAGON', 'PHOENIX', 'THUNDER', 'INFERNO', 'FROST', 'NEBULA', 'ORION',
+  'DEVOUR', 'FEAST', 'HUNGRY', 'GLUTTON', 'SWALLOW', 'CHOMP', 'BITE',
+  'RAPID', 'SPEEDY', 'FLASH', 'BLAZE', 'FANG', 'CLAW', 'STING'
 ];
-const BOT_RESPAWN_DELAY = 4000; // мс до респауна после смерти
-const botMeta = {}; // botId -> { respawnAt }
+
+const BOT_COLORS = [
+  '#ff4e4e', '#ff9f43', '#f9ca24', '#2ecc71', '#00e5cc', '#a29bfe',
+  '#ff6b9d', '#39ff14', '#ff8800', '#dd00ff', '#00b4ff', '#ff00aa'
+];
+
+function getRandomBotName() {
+  return BOT_NICKNAMES[Math.floor(Math.random() * BOT_NICKNAMES.length)];
+}
+
+function getRandomBotColor() {
+  return BOT_COLORS[Math.floor(Math.random() * BOT_COLORS.length)];
+}
+
+// ═══ КОНФИГУРАЦИЯ БОТОВ ═══
+const BOTS = [
+  { name: 'I crazy![NBAM]', skinId: 0, skinColor: '#ff6b6b', isStatic: true },
+  { name: 'RANDOM_1',       skinId: 1, skinColor: '#39ff14', isStatic: false },
+  { name: 'RANDOM_2',       skinId: 2, skinColor: '#00e5cc', isStatic: false }
+];
+
+const BOT_RESPAWN_DELAY = 4000;
+const botMeta = {};
 
 function spawnBot(botCfg, botId) {
   const sx = 300 + Math.random() * (WORLD - 600);
   const sy = 300 + Math.random() * (WORLD - 600);
-  const p = mkSnake(sx, sy, botCfg.name, botCfg.skinId);
-  p.skinColor  = botCfg.skinColor;
-  p.isBot      = true;
-  p.botCfg     = botCfg;
-  p.botId      = botId;
-  p.ws         = null; // нет WebSocket
-  p.deathSent  = true; // не слать 'dead' пакет
-  p._botDir    = Math.random() * Math.PI * 2; // текущая цель-угол
+  
+  let botName = botCfg.name;
+  let botColor = botCfg.skinColor;
+  
+  if (!botCfg.isStatic) {
+    botName = getRandomBotName();
+    botColor = getRandomBotColor();
+  }
+  
+  const p = mkSnake(sx, sy, botName, botCfg.skinId);
+  p.skinColor = botColor;
+  p.isBot = true;
+  p.botCfg = botCfg;
+  p.botId = botId;
+  p.ws = null;
+  p.deathSent = true;
+  p._botDir = Math.random() * Math.PI * 2;
   p._botDirTick = 0;
   players[botId] = p;
   botMeta[botId] = { respawnAt: 0 };
   adjustTick();
-  console.log(`[BOT] Spawned ${botCfg.name} as ${botId}`);
+  console.log(`[BOT] Spawned ${botName} (${botColor}) as ${botId}`);
 }
 
 function initBots() {
@@ -63,10 +97,14 @@ function tickBots() {
     const p = players[botId];
     const meta = botMeta[botId];
 
-    // Респаун мёртвого бота
     if (!p || !p.alive) {
       if (meta && Date.now() >= meta.respawnAt) {
-        spawnBot(cfg, botId);
+        const updatedCfg = { ...cfg };
+        if (!cfg.isStatic) {
+          updatedCfg.name = getRandomBotName();
+          updatedCfg.skinColor = getRandomBotColor();
+        }
+        spawnBot(updatedCfg, botId);
       }
       return;
     }
@@ -76,12 +114,10 @@ function tickBots() {
     const myR = getR(p.score);
     const WALL = 180;
 
-    // ── Собираем всех живых врагов (включая другого бота) ──
     const enemies = Object.values(players).filter(e =>
       e !== p && e.alive && e.segs.length > 0
     );
 
-    // ── Ищем ближайшую цель для атаки ──
     let huntTarget = null, huntDist = 420;
     for (const e of enemies) {
       const dx = e.segs[0].x - head.x, dy = e.segs[0].y - head.y;
@@ -89,7 +125,6 @@ function tickBots() {
       if (d < huntDist) { huntDist = d; huntTarget = e; }
     }
 
-    // ── Уклонение от чужих тел ──
     let dangerAngle = null, dangerDist = 9999;
     for (const e of enemies) {
       for (let si = 1; si < Math.min(e.segs.length, 60); si++) {
@@ -104,7 +139,6 @@ function tickBots() {
       }
     }
 
-    // ── Ближайшая еда ──
     let bestFood = null, bestFoodDist = 250;
     for (const f of foods) {
       const dx = f.x - head.x, dy = f.y - head.y;
@@ -113,7 +147,6 @@ function tickBots() {
       if (d - bonus < bestFoodDist) { bestFoodDist = d - bonus; bestFood = f; }
     }
 
-    // ── Выбираем поведение ──
     let targetAngle = p._botDir || 0;
     let shouldBoost = false;
 
@@ -123,33 +156,23 @@ function tickBots() {
     if (nearWall) {
       targetAngle = Math.atan2(WORLD / 2 - head.y, WORLD / 2 - head.x);
       shouldBoost = true;
-
     } else if (dangerAngle !== null && dangerDist < myR * 2 + 25) {
       targetAngle = dangerAngle;
       shouldBoost = true;
-
     } else if (huntTarget && huntDist < 350) {
-      // Упреждение — целимся чуть впереди головы врага
       const lead = 18;
       const ex = huntTarget.segs[0].x + Math.cos(huntTarget.angle) * lead;
       const ey = huntTarget.segs[0].y + Math.sin(huntTarget.angle) * lead;
       targetAngle = Math.atan2(ey - head.y, ex - head.x);
-
-      if (huntDist < 200) {
-        shouldBoost = p.score >= huntTarget.score * 0.7;
-      }
-
-      // Тактика окружения если бот крупнее
+      if (huntDist < 200) shouldBoost = p.score >= huntTarget.score * 0.7;
       if (p.score > huntTarget.score * 1.4 && huntDist < 300) {
         const offset = Math.PI * 0.35;
         targetAngle += offset * (Math.random() > 0.5 ? 1 : -1);
         shouldBoost = true;
       }
-
     } else if (bestFood) {
       targetAngle = Math.atan2(bestFood.y - head.y, bestFood.x - head.x);
       shouldBoost = bestFood.drop && bestFoodDist < 120;
-
     } else {
       if (p._botDirTick % 55 === 0) {
         p._botDir = (p._botDir || 0) + (Math.random() - 0.5) * 1.4;
@@ -157,17 +180,13 @@ function tickBots() {
       targetAngle = p._botDir;
     }
 
-    // Плавный поворот как у игрока
     const maxTurn = 0.22;
     const diff = botAngleDiff(p.tAngle, targetAngle);
     p.tAngle += Math.sign(diff) * Math.min(Math.abs(diff), maxTurn);
-
     p._botDir = targetAngle;
     p.boosting = shouldBoost && p.length > MIN_LEN + 5;
   });
 }
-
-// Смерть бота обрабатывается внутри killSnake
 
 const accounts = {};
 const sessions = {};
@@ -223,10 +242,9 @@ const TOP_SIZE = 100;
 function submitScore(name, score, skinId, isBot) {
   if (score < 50) return;
   if (isBot) {
-    // Бот — обновляем его запись (не дублируем)
     const idx = globalTop.findIndex(r => r.name === name && r.isBot);
     if (idx >= 0) {
-      if (score <= globalTop[idx].score) return; // не обновляем если меньше
+      if (score <= globalTop[idx].score) return;
       globalTop[idx].score = score;
       globalTop[idx].date = Date.now();
     } else {
@@ -304,7 +322,9 @@ function adjustTick() { getAlivePlayers() === 0 ? startTick(TICK_IDLE) : startTi
 
 function mkFood() {
   const rnd = Math.random(); let size, r;
-  if (rnd < 0.75) { size='small'; r=3+Math.random()*2; } else if (rnd < 0.95) { size='medium'; r=5+Math.random()*2; } else { size='big'; r=8+Math.random()*2; }
+  if (rnd < 0.75) { size='small'; r=3+Math.random()*2; }
+  else if (rnd < 0.95) { size='medium'; r=5+Math.random()*2; }
+  else { size='big'; r=8+Math.random()*2; }
   return { x:Math.round(200+Math.random()*(WORLD-400)), y:Math.round(200+Math.random()*(WORLD-400)), r:Math.round(r*10)/10, color:`hsl(${Math.floor(Math.random()*360)},90%,65%)`, size };
 }
 
@@ -312,7 +332,6 @@ function initFoods() {
   foods = []; 
   for(let i = 0; i < MAX_FOOD; i++) foods.push(mkFood()); 
 }
-// Вызови при старте сервера
 initFoods();
 
 function mkSnake(x, y, name, skinId) {
@@ -339,7 +358,6 @@ function updateSnake(sn) {
     const prev=sn.segs[i-1],curr=sn.segs[i],dx=prev.x-curr.x,dy=prev.y-curr.y,dist=Math.sqrt(dx*dx+dy*dy);
     if(dist>segDist){const ratio=(dist-segDist)/dist; curr.x=Math.round(curr.x+dx*ratio); curr.y=Math.round(curr.y+dy*ratio);}
   }
-  // ═══ BR урон от зоны ═══
   if (sn.brMode && sn.segs.length > 0 && brIsOutside(sn.segs[0].x, sn.segs[0].y)) {
     if (!sn.brInZone) { sn.brInZone = true; sn.brZoneSince = Date.now(); }
     sn.brHP = Math.max(0, 100 - (Date.now() - sn.brZoneSince) / BR_DAMAGE_TIME * 100);
@@ -368,11 +386,10 @@ function eatFood(sn) {
 
 function killSnake(sn, cause) {
   if(!sn.alive) return; sn.alive=false;
-  sn._deathCause = cause || null; // 'wall' | { killerName } | null
-  // Бот — запланировать респаун
+  sn._deathCause = cause || null;
   if (sn.isBot && sn.botId !== undefined && botMeta[sn.botId]) {
     botMeta[sn.botId].respawnAt = Date.now() + BOT_RESPAWN_DELAY;
-    submitScore(sn.name, sn.score, sn.skinId, true); // бот попадает в топ
+    submitScore(sn.name, sn.score, sn.skinId, true);
   }
   if(sn.teamId&&teams[sn.teamId]){teams[sn.teamId]=teams[sn.teamId].filter(pid=>pid!==sn.pid);if(teams[sn.teamId].length===0)delete teams[sn.teamId];}
   sn.teamId=null;
@@ -389,15 +406,11 @@ function checkCollisions() {
     for (const other of alive) {
       if (!other.alive || other === sn) continue;
       if (sn.teamId && sn.teamId === other.teamId) continue;
-      
-      // Проверка расстояния до другой змейки (чтобы не считать далёких)
       const distToOther = Math.hypot(other.segs[0].x - h.x, other.segs[0].y - h.y);
-      if (distToOther > VIEW_X) continue; // слишком далеко — не проверяем
-      
+      if (distToOther > VIEW_X) continue;
       for (let i = 2; i < other.segs.length; i++) {
         const s = other.segs[i];
         const dx = h.x - s.x, dy = h.y - s.y;
-        // Уменьшенный радиус коллизии
         if (dx * dx + dy * dy < (r + getR(other.score) * 0.3) ** 2) {
           killSnake(sn, { killerName: other.name });
           if (other.ws && other.ws.readyState === 1) {
@@ -418,8 +431,6 @@ function buildSnapshot(forId) {
   const me = players[forId];
   if (!me || !me.segs.length) return null;
   const cx = me.segs[0].x, cy = me.segs[0].y;
-  
-  // Игроки поблизости
   const nearPlayers = Object.entries(players)
     .filter(([, p]) => p.alive)
     .filter(([id, p]) => {
@@ -436,16 +447,12 @@ function buildSnapshot(forId) {
       brMode: p.brMode || false, brHP: p.brMode ? Math.round(p.brHP) : null
     }));
   
-  // ══════ ЕДА С ОГРАНИЧЕНИЕМ (НЕ БОЛЕЕ 250 ОБЪЕКТОВ) ══════
-  const MAX_VISIBLE_FOOD = 225;  // ← меняй это число (200, 250, 300)
-  
+  const MAX_VISIBLE_FOOD = 225;
   let nearFoods = foods.filter(f => {
     if (f.drop) return true;
     const dx = Math.abs(f.x - cx), dy = Math.abs(f.y - cy);
     return dx < VIEW_X && dy < VIEW_Y;
   });
-  
-  // Если еды больше MAX_VISIBLE_FOOD — оставляем только ближайшие
   if (nearFoods.length > MAX_VISIBLE_FOOD) {
     nearFoods.sort((a, b) => {
       const da = Math.hypot(a.x - cx, a.y - cy);
@@ -455,7 +462,6 @@ function buildSnapshot(forId) {
     nearFoods = nearFoods.slice(0, MAX_VISIBLE_FOOD);
   }
   
-  // Лидерборд (обновляем раз в 10 тиков)
   lbTickCounter++;
   if (lbTickCounter >= 10) {
     lbTickCounter = 0;
@@ -505,7 +511,7 @@ function gameTick() {
   const playerCount=alive.length;
   for(const id in players){
     const p=players[id],ws=p.ws;
-    if(p.isBot) continue; // боты — без ws
+    if(p.isBot) continue;
     if(!ws||ws.readyState!==WebSocket.OPEN) continue;
     if(!p.alive){if(!p.deathSent){p.deathSent=true;submitScore(p.name,p.score,p.skinId);const cause=p._deathCause;ws.send(JSON.stringify({type:'dead',score:p.score,globalTop:getTop(10),deathCause:cause}));}continue;}
     const snap=buildSnapshot(id); if(snap){snap.playerCount=playerCount;try{ws.send(JSON.stringify(snap));}catch(e){}}
@@ -533,7 +539,6 @@ wss.on('connection', (ws) => {
       const p=mkSnake(sx,sy,msg.name||'Player',msg.skinId||0);
       p.ws=ws; p.deathSent=false; players[id]=p; p.skinColor=msg.skinColor||'#f9ca24';
       if(msg.pid){p.pid=msg.pid;pidToWsId[msg.pid]=id;}
-      // ═══ Battle Royale режим ═══
       if(msg.brMode){
         p.brMode=true; p.brHP=100; brActive=true;
         if(brZoneSize===WORLD) brLastShrink=Date.now();
@@ -546,9 +551,7 @@ wss.on('connection', (ws) => {
     }
 
     if(msg.type==='get_top') ws.send(JSON.stringify({type:'global_top',top:getTop(50)}));
-
     if(msg.type==='input'){const p=players[id];if(!p||!p.alive)return;p.tAngle=msg.angle;p.boosting=msg.boost&&p.length>MIN_LEN;}
-
     if(msg.type==='respawn'){
       const old=players[id];
       const sx=300+Math.random()*(WORLD-600),sy=300+Math.random()*(WORLD-600);
@@ -558,7 +561,6 @@ wss.on('connection', (ws) => {
       if(old&&old.brMode){p.brMode=true;p.brHP=100;}
       ws.send(JSON.stringify({type:'joined',id,spawnX:sx,spawnY:sy,worldSize:WORLD})); adjustTick();
     }
-
     if(msg.type==='add_friend'){
       const myPid=msg.myPid,friendPid=msg.friendPid;
       if(!myPid||!friendPid||myPid===friendPid) return;
@@ -567,12 +569,10 @@ wss.on('connection', (ws) => {
       const fp=pidToWsId[friendPid]?players[pidToWsId[friendPid]]:null;
       ws.send(JSON.stringify({type:'friend_added',pid:friendPid,online:!!(fp&&fp.alive),name:fp?fp.name:'???'}));
     }
-
     if(msg.type==='remove_friend'){
       if(friendships[msg.myPid]) friendships[msg.myPid].delete(msg.friendPid);
       ws.send(JSON.stringify({type:'friend_removed',pid:msg.friendPid}));
     }
-
     if(msg.type==='join_team'){
       const myPid=msg.myPid,friendPid=msg.friendPid; if(!myPid||!friendPid) return;
       const me=players[id]; if(!me||!me.alive) return;
@@ -584,7 +584,6 @@ wss.on('connection', (ws) => {
       me.teamId=teamId;me.teamColor=teamColor;
       ws.send(JSON.stringify({type:'team_joined',teamId,teamColor,partnerName:fp.name}));
     }
-
     if(msg.type==='leave_team'){
       const me=players[id]; if(!me||!me.teamId) return;
       const tid=me.teamId;
