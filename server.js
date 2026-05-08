@@ -376,15 +376,31 @@ function killSnake(sn, cause) {
 }
 
 function checkCollisions() {
-  const alive=Object.values(players).filter(s=>s.alive);
-  for(const sn of alive){
-    if(!sn.alive) continue;
-    const h=sn.segs[0],r=getR(sn.score);
-    for(const other of alive){
-      if(!other.alive||other===sn) continue;
-      if(sn.teamId&&sn.teamId===other.teamId) continue;
-      for(let i=2;i<other.segs.length;i++){const s=other.segs[i],dx=h.x-s.x,dy=h.y-s.y;if(dx*dx+dy*dy<(r+getR(other.score)*0.3)**2){killSnake(sn,{killerName:other.name});if(other.ws&&other.ws.readyState===1)other.ws.send(JSON.stringify({type:'kill_reward',coins:3}));break;}}
-      if(!sn.alive) break;
+  const alive = Object.values(players).filter(s => s.alive);
+  for (const sn of alive) {
+    if (!sn.alive) continue;
+    const h = sn.segs[0], r = getR(sn.score);
+    for (const other of alive) {
+      if (!other.alive || other === sn) continue;
+      if (sn.teamId && sn.teamId === other.teamId) continue;
+      
+      // Проверка расстояния до другой змейки (чтобы не считать далёких)
+      const distToOther = Math.hypot(other.segs[0].x - h.x, other.segs[0].y - h.y);
+      if (distToOther > VIEW_X) continue; // слишком далеко — не проверяем
+      
+      for (let i = 2; i < other.segs.length; i++) {
+        const s = other.segs[i];
+        const dx = h.x - s.x, dy = h.y - s.y;
+        // Уменьшенный радиус коллизии
+        if (dx * dx + dy * dy < (r + getR(other.score) * 0.3) ** 2) {
+          killSnake(sn, { killerName: other.name });
+          if (other.ws && other.ws.readyState === 1) {
+            other.ws.send(JSON.stringify({ type: 'kill_reward', coins: 3 }));
+          }
+          break;
+        }
+      }
+      if (!sn.alive) break;
     }
   }
 }
