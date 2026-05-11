@@ -4,7 +4,7 @@ const crypto = require('crypto');
 
 const PORT = process.env.PORT || 8080;
 const WORLD = 4000;
-const TICK = 33;
+const TICK = 66;
 const TICK_IDLE = 5000;
 const MIN_LEN = 10;
 const MAX_BODY = 750;
