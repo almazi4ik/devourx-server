@@ -431,6 +431,8 @@ function buildSnapshot(forId) {
   const me = players[forId];
   if (!me || !me.segs.length) return null;
   const cx = me.segs[0].x, cy = me.segs[0].y;
+
+  // 1. Игроки в радиусе видимости
   const nearPlayers = Object.entries(players)
     .filter(([, p]) => p.alive)
     .filter(([id, p]) => {
@@ -439,20 +441,28 @@ function buildSnapshot(forId) {
       return Math.abs(ph.x - cx) < VIEW_X && Math.abs(ph.y - cy) < VIEW_Y;
     })
     .map(([id, p]) => ({
-      id, name: p.name, skinId: p.skinId, score: p.score,
+      id, 
+      name: p.name, 
+      skinId: p.skinId, 
+      score: p.score,
       scoreStr: fmtScore(p.score),
       segs: p.segs.slice(0, MAX_SEGS_SEND),
-      boosting: p.boosting, isMe: id === forId,
-      teamId: p.teamId || null, teamColor: p.teamColor || null,
-      brMode: p.brMode || false, brHP: p.brMode ? Math.round(p.brHP) : null
+      boosting: p.boosting, 
+      isMe: id === forId,
+      teamId: p.teamId || null, 
+      teamColor: p.teamColor || null,
+      brMode: p.brMode || false, 
+      brHP: p.brMode ? Math.round(p.brHP) : null
     }));
   
+  // 2. Еда (с лимитом, чтобы не лагало)
   const MAX_VISIBLE_FOOD = 225;
   let nearFoods = foods.filter(f => {
     if (f.drop) return true;
     const dx = Math.abs(f.x - cx), dy = Math.abs(f.y - cy);
     return dx < VIEW_X && dy < VIEW_Y;
   });
+
   if (nearFoods.length > MAX_VISIBLE_FOOD) {
     nearFoods.sort((a, b) => {
       const da = Math.hypot(a.x - cx, a.y - cy);
@@ -462,6 +472,7 @@ function buildSnapshot(forId) {
     nearFoods = nearFoods.slice(0, MAX_VISIBLE_FOOD);
   }
   
+  // 3. Обновление лидерборда (раз в 10 тиков)
   lbTickCounter++;
   if (lbTickCounter >= 10) {
     lbTickCounter = 0;
@@ -470,20 +481,27 @@ function buildSnapshot(forId) {
       .sort(([, a], [, b]) => b.score - a.score)
       .slice(0, 10)
       .map(([id, s]) => ({
-        name: s.name, score: s.score,
-        scoreStr: fmtScore(s.score), isMe: id === forId
+        name: s.name, 
+        score: s.score,
+        scoreStr: fmtScore(s.score), 
+        isMe: id === forId
       }));
   }
   
+  // 4. Данные для миникарты и Battle Royale
   const brSecsLeft = Math.max(0, Math.ceil((BR_SHRINK_INTERVAL - (Date.now() - brLastShrink)) / 1000));
   const allHeads = Object.entries(players)
     .filter(([, p]) => p.alive && p.segs.length)
     .map(([id, p]) => ({
-      x: p.segs[0].x, y: p.segs[0].y, isMe: id === forId
+      x: p.segs[0].x, 
+      y: p.segs[0].y, 
+      isMe: id === forId
     }));
   
+  // 5. Возвращаем объект (добавлен timestamp для интерполяции)
   return {
     type: 'world',
+    timestamp: Date.now(), // КРИТИЧЕСКИ ВАЖНО для плавной отрисовки 60 FPS
     players: nearPlayers,
     foods: nearFoods,
     leaderboard: cachedLeaderboard,
